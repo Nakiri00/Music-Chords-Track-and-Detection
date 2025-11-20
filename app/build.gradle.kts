@@ -48,5 +48,10 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel:2.9.4")
     implementation("androidx.lifecycle:lifecycle-livedata:2.9.4")
     implementation("com.google.code.gson:gson:2.10.1")
-    implementation("com.github.JorenSix:TarsosDSP:v2.4")
+    implementation("be.tarsos.dsp:core:2.5")
+    implementation("be.tarsos.dsp:jvm:2.5")
+
+
+
+
 }
