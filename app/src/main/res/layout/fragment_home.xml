@@ -50,7 +50,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:layout_gravity="center_horizontal"
-                android:text="Download MP3"
+                android:text="Download Audio"
                 android:visibility="gone"
                 tools:visibility="visible" />
             <Button
@@ -59,7 +59,7 @@
                 android:layout_height="wrap_content"
                 android:layout_gravity="center_horizontal"
                 android:layout_marginTop="8dp"
-                android:text="Deteksi Nada dari Audio"
+                android:text="Deteksi Chords dari Audio"
                 android:visibility="gone"
                 tools:visibility="visible"/>
             <TextView

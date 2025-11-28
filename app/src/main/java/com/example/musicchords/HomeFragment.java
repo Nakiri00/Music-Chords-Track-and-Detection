@@ -37,6 +37,16 @@ import be.tarsos.dsp.AudioProcessor;
 import be.tarsos.dsp.SpectralPeakProcessor;
 import be.tarsos.dsp.util.fft.FFT;
 import be.tarsos.dsp.io.jvm.AudioDispatcherFactory;
+import android.media.MediaCodec;
+import android.media.MediaExtractor;
+import android.media.MediaFormat;
+import be.tarsos.dsp.io.UniversalAudioInputStream;
+import be.tarsos.dsp.io.TarsosDSPAudioFormat;
+
+import java.io.BufferedInputStream;
+import java.io.ByteArrayInputStream;
+import java.nio.ByteBuffer;
+import java.io.ByteArrayOutputStream;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -301,13 +311,25 @@ public class HomeFragment extends Fragment {
         Log.d("Download", "Download dimulai. ID = " + downloadID);
     }
 
+    // Class helper sederhana untuk menampung data audio + formatnya
+    private static class AudioData {
+        byte[] bytes;
+        int sampleRate;
+        int channels;
+
+        AudioData(byte[] bytes, int sampleRate, int channels) {
+            this.bytes = bytes;
+            this.sampleRate = sampleRate;
+            this.channels = channels;
+        }
+    }
+
     private void analyzeChords(String audioPath) {
-        // Jalankan proses berat di background thread agar UI tidak macet
+        buttonDetectPitch.setEnabled(false);
         new Thread(() -> {
             try {
                 File audioFile = new File(audioPath);
 
-                // Validasi file
                 if (!audioFile.exists()) {
                     if (getActivity() != null) {
                         getActivity().runOnUiThread(() ->
@@ -317,101 +339,294 @@ public class HomeFragment extends Fragment {
                     return;
                 }
 
-                int bufferSize = 4096 * 2;
-                int bufferOverlap = bufferSize / 2;
-                int sampleRate = 44100;
+                // 1. DECODE AUDIO → PCM
+                AudioData decoded = decodeAudio(audioPath);
+                if (decoded == null) {
+                    if (getActivity() != null) {
+                        getActivity().runOnUiThread(() ->
+                                textViewPitchResult.setText("Gagal decode audio menggunakan MediaExtractor")
+                        );
+                    }
+                    return;
+                }
 
-                final Map<Double, String> detectedChords = new TreeMap<>();
-                final List<String> progression = new ArrayList<>();
+                byte[] pcmData;
+                if (decoded.channels > 1) {
+                    pcmData = convertToMono(decoded.bytes);
+                } else {
+                    pcmData = decoded.bytes;
+                }
 
-                // --- PERBAIKAN DI SINI ---
-                // Gunakan fromPipe, bukan fromFile.
-                // Di Android, fromFile akan menyebabkan error javax.sound.sampled
-                AudioDispatcher dispatcher = AudioDispatcherFactory.fromPipe(
-                        audioPath,
+                int sampleRate = decoded.sampleRate;
+                int totalBytes = pcmData.length;
+                int bytesPerSample = 2; // 16-bit
+                int totalSamples = totalBytes / bytesPerSample;
+                int durationSeconds = totalSamples / sampleRate;
+
+                Log.d("ChordAnalysis", "PCM size=" + totalBytes + " bytes, samples=" + totalSamples + ", sr=" + sampleRate + ", duration(s)=" + durationSeconds);
+
+                // jika durasi terlalu pendek beri tahu user
+                if (durationSeconds < 3) {
+                    final String warn = "Decoded audio sangat pendek: " + durationSeconds + " detik. Periksa file atau decoder.";
+                    Log.w("ChordAnalysis", warn);
+                    if (getActivity() != null) {
+                        getActivity().runOnUiThread(() -> Toast.makeText(getContext(), warn, Toast.LENGTH_LONG).show());
+                    }
+                }
+                int bufferSize = 8192;
+                int bufferOverlap = 4096;
+
+                TarsosDSPAudioFormat format = new TarsosDSPAudioFormat(
                         sampleRate,
-                        bufferSize,
-                        bufferOverlap
+                        16,
+                        1,
+                        true,
+                        false
                 );
 
+                UniversalAudioInputStream inputStream =
+                        new UniversalAudioInputStream(new ByteArrayInputStream(pcmData), format);
+
+                AudioDispatcher dispatcher =
+                        new AudioDispatcher(inputStream, bufferSize, bufferOverlap);
+
                 final FFT fft = new FFT(bufferSize);
-                final float[] amplitudes = new float[bufferSize / 2];
+                final float[] spectrum = new float[bufferSize / 2];
+
+                Map<Double, String> detectedChords = new TreeMap<>();
+                List<String> progression = new ArrayList<>();
 
                 AudioProcessor chordProcessor = new AudioProcessor() {
                     @Override
                     public boolean process(AudioEvent audioEvent) {
-                        float[] audioFloatBuffer = audioEvent.getFloatBuffer();
-                        fft.forwardTransform(audioFloatBuffer);
-                        fft.modulus(audioFloatBuffer, amplitudes);
+                        float[] buffer = audioEvent.getFloatBuffer();
+                        fft.forwardTransform(buffer);
+                        fft.modulus(buffer, spectrum);
+
+                        float maxAmp = 0;
+                        for (float f : spectrum) {
+                            if (f > maxAmp) maxAmp = f;
+                        }
 
                         boolean[] chroma = new boolean[12];
-                        for (int i = 0; i < amplitudes.length; i++) {
-                            double frequency = fft.binToHz(i, sampleRate);
-                            // Filter frekuensi suara manusia/musik umum
-                            if (frequency > 80 && frequency < 2000) {
-                                int midiNote = (int) Math.round(69 + 12 * Math.log(frequency / 440.0) / Math.log(2.0));
-                                if (midiNote > 0) {
-                                    int noteIndex = midiNote % 12;
-                                    // Ambang batas amplitudo (sesuaikan jika terlalu sensitif)
-                                    if (amplitudes[i] > 0.5) {
-                                        chroma[noteIndex] = true;
+                        if (maxAmp > 0.1f) {
+                            for (int i = 0; i < spectrum.length; i++) {
+                                double freq = fft.binToHz(i, sampleRate);
+                                if (freq > 65 && freq < 2000) {
+                                    if (spectrum[i] > maxAmp * 0.2f) {
+                                        int midi = (int) Math.round(
+                                                69 + 12 * Math.log(freq / 440.0) / Math.log(2)
+                                        );
+                                        if (midi > 0) {
+                                            chroma[midi % 12] = true;
+                                        }
                                     }
                                 }
                             }
                         }
 
                         String chord = ChordTemplates.findBestMatchingChord(chroma);
-                        double timeStamp = audioEvent.getTimeStamp();
+                        double t = audioEvent.getTimeStamp();
 
-                        // Logika sederhana untuk mengurangi duplikat akor berurutan
                         if (!"N/A".equals(chord)) {
-                            if (progression.isEmpty() || !chord.equals(progression.get(progression.size() - 1))) {
-                                detectedChords.put(timeStamp, chord);
+                            if (progression.isEmpty() ||
+                                    !chord.equals(progression.get(progression.size() - 1))) {
+                                detectedChords.put(t, chord);
                                 progression.add(chord);
                             }
                         }
+
                         return true;
                     }
 
                     @Override
                     public void processingFinished() {
-                        final StringBuilder resultBuilder = new StringBuilder();
-                        for (Map.Entry<Double, String> entry : detectedChords.entrySet()) {
-                            // Format waktu menit:detik
-                            int seconds = entry.getKey().intValue();
-                            int p1 = seconds % 60;
-                            int p2 = seconds / 60;
-                            int p3 = p2 % 60;
-                            String timeStr = String.format("%02d:%02d", p3, p1);
+                        StringBuilder sb = new StringBuilder();
+                        String title = (audioTitle != null && !audioTitle.isEmpty())
+                                ? audioTitle : "Audio";
 
-                            resultBuilder.append(String.format("[%s] %s\n", timeStr, entry.getValue()));
+                        sb.append(title).append("\n");
+
+                        if (detectedChords.isEmpty()) {
+                            sb.append("Tidak ada chord yang terdeteksi.\n");
+                        } else {
+                            for (Map.Entry<Double, String> entry : detectedChords.entrySet()) {
+                                int seconds = entry.getKey().intValue();
+                                String time = String.format("%02d:%02d", seconds / 60, seconds % 60);
+                                sb.append("[").append(time).append("] ")
+                                        .append(entry.getValue()).append("\n");
+                            }
                         }
 
                         if (getActivity() != null) {
                             getActivity().runOnUiThread(() -> {
-                                if (resultBuilder.length() > 0) {
-                                    textViewPitchResult.setText(resultBuilder.toString());
-                                } else {
-                                    textViewPitchResult.setText("Tidak ada akor yang terdeteksi (Audio mungkin terlalu lemah atau format tidak didukung).");
-                                }
+                                textViewPitchResult.setText(sb.toString());
+                                buttonDetectPitch.setEnabled(true);
+                                resultTextView.setText("Analisis selesai.");
                             });
                         }
                     }
                 };
 
                 dispatcher.addAudioProcessor(chordProcessor);
-                dispatcher.run(); // Gunakan run() langsung karena kita sudah di dalam Thread baru
+                dispatcher.run();
 
             } catch (Exception e) {
-                // Tangkap Exception umum untuk menghindari crash
-                Log.e("ChordAnalysis", "Error saat analisis akor", e);
+                Log.e("ChordAnalysis", "Error analisis", e);
                 if (getActivity() != null) {
                     getActivity().runOnUiThread(() ->
-                            textViewPitchResult.setText("Error Analisis: " + e.getMessage())
+                            textViewPitchResult.setText("Error analisis: " + e.getMessage())
                     );
                 }
             }
         }).start();
     }
+
+
+    // KONVERTER STEREO KE MONO
+    private byte[] convertToMono(byte[] stereoData) {
+        if (stereoData == null || stereoData.length == 0) return stereoData;
+
+        // setiap sample 2 byte (16-bit)
+        int totalSamples = stereoData.length / 2; // jumlah 'short' samples (both channels)
+        int totalFrames = totalSamples / 2; // setiap frame punya 2 channel
+        ByteBuffer bb = ByteBuffer.wrap(stereoData).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        java.nio.ShortBuffer sb = bb.asShortBuffer();
+
+        short[] monoShorts = new short[totalFrames];
+
+        for (int i = 0; i < totalFrames; i++) {
+            short left = sb.get(i * 2);
+            short right = sb.get(i * 2 + 1);
+            int avg = (left + right) / 2;
+            monoShorts[i] = (short) avg;
+        }
+
+        ByteBuffer outBb = ByteBuffer.allocate(monoShorts.length * 2).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        outBb.asShortBuffer().put(monoShorts);
+        return outBb.array();
+    }
+
+
+    // Method Decoder yang mengembalikan Data + Format
+    private AudioData decodeAudio(String path) {
+        try {
+            MediaExtractor extractor = new MediaExtractor();
+            extractor.setDataSource(path);
+
+            int audioTrack = -1;
+            MediaFormat format = null;
+
+            for (int i = 0; i < extractor.getTrackCount(); i++) {
+                MediaFormat f = extractor.getTrackFormat(i);
+                String mime = f.getString(MediaFormat.KEY_MIME);
+                if (mime != null && mime.startsWith("audio/")) {
+                    audioTrack = i;
+                    format = f;
+                    break;
+                }
+            }
+
+            if (audioTrack < 0) {
+                Log.e("DecodeAudio", "No audio track found");
+                extractor.release();
+                return null;
+            }
+
+            extractor.selectTrack(audioTrack);
+
+            String mime = format.getString(MediaFormat.KEY_MIME);
+            MediaCodec codec = MediaCodec.createDecoderByType(mime);
+            codec.configure(format, null, null, 0);
+            codec.start();
+
+            ByteArrayOutputStream pcmOutput = new ByteArrayOutputStream();
+            MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
+
+            boolean inputDone = false;
+            boolean outputDone = false;
+
+            final int TIMEOUT_US = 10000;
+
+            while (!outputDone) {
+                // feed input
+                if (!inputDone) {
+                    int inIndex = codec.dequeueInputBuffer(TIMEOUT_US);
+                    if (inIndex >= 0) {
+                        ByteBuffer inputBuffer = codec.getInputBuffer(inIndex);
+                        if (inputBuffer != null) {
+                            int sampleSize = extractor.readSampleData(inputBuffer, 0);
+                            if (sampleSize < 0) {
+                                // End of stream -- send EOS to codec
+                                codec.queueInputBuffer(inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                                inputDone = true;
+                            } else {
+                                long presentationTimeUs = extractor.getSampleTime();
+                                codec.queueInputBuffer(inIndex, 0, sampleSize, presentationTimeUs, 0);
+                                extractor.advance();
+                            }
+                        }
+                    }
+                }
+
+                int outIndex = codec.dequeueOutputBuffer(bufferInfo, TIMEOUT_US);
+
+                if (outIndex >= 0) {
+                    ByteBuffer outBuffer = codec.getOutputBuffer(outIndex);
+
+                    if (outBuffer != null && bufferInfo.size > 0) {
+                        byte[] chunk = new byte[bufferInfo.size];
+                        outBuffer.get(chunk);
+                        pcmOutput.write(chunk);
+                    }
+
+                    codec.releaseOutputBuffer(outIndex, false);
+
+                    // Check for end of stream from codec
+                    if ((bufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+                        outputDone = true;
+                    }
+                } else if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    MediaFormat newFormat = codec.getOutputFormat();
+                    Log.d("DecodeAudio", "Output format changed: " + newFormat);
+                } else if (outIndex == MediaCodec.INFO_TRY_AGAIN_LATER) {
+                    // no output available yet
+                    // If input is done and no more output, we should continue waiting for EOS
+                    if (inputDone) {
+                        // small sleep to avoid busy loop
+                        try { Thread.sleep(10); } catch (InterruptedException ignored) {}
+                    }
+                } else if (outIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
+                    // ignored for API >= 21 (we use getOutputBuffer)
+                }
+            }
+
+            // cleanup
+            codec.stop();
+            codec.release();
+            extractor.release();
+
+            byte[] pcmBytes = pcmOutput.toByteArray();
+
+            int channels = 1;
+            int sampleRate = 44100;
+            if (format.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
+                channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+            }
+            if (format.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
+                sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+            }
+
+            Log.d("DecodeAudio", "Decoded PCM bytes: " + pcmBytes.length + " channels=" + channels + " sr=" + sampleRate);
+
+            return new AudioData(pcmBytes, sampleRate, channels);
+
+        } catch (Exception e) {
+            Log.e("DecodeAudio", "Decode error", e);
+            return null;
+        }
+    }
+
+
 
 }
