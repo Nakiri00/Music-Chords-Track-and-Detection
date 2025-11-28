@@ -395,25 +395,34 @@ public class HomeFragment extends Fragment {
 
                 Map<Double, String> detectedChords = new TreeMap<>();
                 List<String> progression = new ArrayList<>();
+                final String[] lastStableChord = {""}; // Chord terakhir yang valid ditampilkan
+                final String[] potentialChord = {""};   // Kandidat chord baru
+                final int[] stableCount = {0};          // Counter seberapa lama kandidat bertahan
+                final int MIN_STABLE_FRAMES = 3;        // Minimal frame berturut-turut agar dianggap valid
 
                 AudioProcessor chordProcessor = new AudioProcessor() {
                     @Override
                     public boolean process(AudioEvent audioEvent) {
-                        float[] buffer = audioEvent.getFloatBuffer();
-                        fft.forwardTransform(buffer);
-                        fft.modulus(buffer, spectrum);
+                        float[] audioBuffer = audioEvent.getFloatBuffer();
+                        float[] transformBuffer = new float[audioBuffer.length];
+                        System.arraycopy(audioBuffer, 0, transformBuffer, 0, audioBuffer.length);
+                        fft.forwardTransform(transformBuffer);
+                        fft.modulus(transformBuffer, spectrum);
 
                         float maxAmp = 0;
                         for (float f : spectrum) {
                             if (f > maxAmp) maxAmp = f;
                         }
 
-                        boolean[] chroma = new boolean[12];
-                        if (maxAmp > 0.1f) {
+                        // --- PERBAIKAN 1: Turunkan threshold ---
+                        if (maxAmp > 0.01f) {
+                            boolean[] chroma = new boolean[12];
                             for (int i = 0; i < spectrum.length; i++) {
                                 double freq = fft.binToHz(i, sampleRate);
-                                if (freq > 65 && freq < 2000) {
-                                    if (spectrum[i] > maxAmp * 0.2f) {
+                                // Rentang frekuensi untuk akor biasanya di mid-range
+                                if (freq > 60 && freq < 2000) {
+                                    // Threshold lokal juga bisa disesuaikan
+                                    if (spectrum[i] > maxAmp * 0.1f) {
                                         int midi = (int) Math.round(
                                                 69 + 12 * Math.log(freq / 440.0) / Math.log(2)
                                         );
@@ -423,19 +432,36 @@ public class HomeFragment extends Fragment {
                                     }
                                 }
                             }
-                        }
 
-                        String chord = ChordTemplates.findBestMatchingChord(chroma);
-                        double t = audioEvent.getTimeStamp();
+                            String currentChord = ChordTemplates.findBestMatchingChord(chroma);
+                            double t = audioEvent.getTimeStamp();
 
-                        if (!"N/A".equals(chord)) {
-                            if (progression.isEmpty() ||
-                                    !chord.equals(progression.get(progression.size() - 1))) {
-                                detectedChords.put(t, chord);
-                                progression.add(chord);
+                            if (!"N/A".equals(currentChord)) {
+                                // LOGIKA SMOOTHING
+                                if (currentChord.equals(potentialChord[0])) {
+                                    stableCount[0]++;
+                                } else {
+                                    // Reset jika chord berubah lagi (tidak stabil)
+                                    potentialChord[0] = currentChord;
+                                    stableCount[0] = 1;
+                                }
+
+                                // Jika chord sudah stabil selama X frame, dan BEDA dari yang terakhir ditampilkan
+                                if (stableCount[0] >= MIN_STABLE_FRAMES) {
+                                    if (!currentChord.equals(lastStableChord[0])) {
+                                        // CATAT PERUBAHAN
+                                        detectedChords.put(t, currentChord);
+                                        progression.add(currentChord); // List untuk UI
+
+                                        lastStableChord[0] = currentChord; // Update chord aktif
+
+                                        // Log agar Anda bisa memantau hasilnya
+                                        Log.d("ChordFinal", "Ganti ke: " + currentChord + " di detik " + t);
+                                    }
+                                }
                             }
+                            return true;
                         }
-
                         return true;
                     }
 
