@@ -4,8 +4,11 @@ import android.content.BroadcastReceiver;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.database.Cursor;
+import android.media.MediaPlayer;
 import android.os.Bundle;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
@@ -17,13 +20,18 @@ import android.content.Context;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.Handler;
+import android.provider.OpenableColumns;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageButton;
+import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -45,6 +53,8 @@ import be.tarsos.dsp.io.TarsosDSPAudioFormat;
 
 import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.io.ByteArrayOutputStream;
 
@@ -84,6 +94,15 @@ public class HomeFragment extends Fragment {
     private String downloadedFilePath = null;
     private long downloadID;
 
+    private MediaPlayer mediaPlayer;
+    private ImageButton btnPlay, btnPause;
+    private SeekBar seekBarAudio;
+    private TextView tvDuration;
+    private Handler handler = new Handler();
+    private Runnable updateSeekBarRunnable;
+    private Button buttonPickFile;
+    private LinearLayout layoutAudioPlayer; // Tambahkan ini
+
     private boolean receiverRegistered = false;
 
     // TODO: Rename and change types of parameters
@@ -111,6 +130,172 @@ public class HomeFragment extends Fragment {
         args.putString(ARG_PARAM2, param2);
         fragment.setArguments(args);
         return fragment;
+    }
+
+    private final ActivityResultLauncher<String> pickAudioLauncher = registerForActivityResult(
+            new ActivityResultContracts.GetContent(),
+            uri -> {
+                if (uri != null) {
+                    processSelectedFile(uri);
+                }
+            }
+    );
+
+    private void playAudio() {
+        if (mediaPlayer != null) {
+            mediaPlayer.start();
+            btnPlay.setVisibility(View.GONE);
+            btnPause.setVisibility(View.VISIBLE);
+            updateSeekBar();
+        }
+    }
+
+    private void pauseAudio() {
+        if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+            mediaPlayer.pause();
+            btnPause.setVisibility(View.GONE);
+            btnPlay.setVisibility(View.VISIBLE);
+            handler.removeCallbacks(updateSeekBarRunnable);
+        }
+    }
+
+    private void updateSeekBar() {
+        updateSeekBarRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+                    seekBarAudio.setProgress(mediaPlayer.getCurrentPosition());
+                    updateDurationText();
+                    handler.postDelayed(this, 1000); // Update setiap 1 detik
+                }
+            }
+        };
+        handler.post(updateSeekBarRunnable);
+    }
+
+    private void updateDurationText() {
+        if (mediaPlayer != null) {
+            int current = mediaPlayer.getCurrentPosition() / 1000;
+            int total = mediaPlayer.getDuration() / 1000;
+
+            String currentStr = String.format("%02d:%02d", current / 60, current % 60);
+            String totalStr = String.format("%02d:%02d", total / 60, total % 60);
+
+            tvDuration.setText(currentStr + " / " + totalStr);
+        }
+    }
+
+    private void setAudioControlsEnabled(boolean enabled) {
+        btnPlay.setEnabled(enabled);
+        btnPause.setEnabled(enabled);
+        seekBarAudio.setEnabled(enabled);
+        if (!enabled) {
+            btnPlay.setAlpha(0.5f);
+            seekBarAudio.setProgress(0);
+        } else {
+            btnPlay.setAlpha(1.0f);
+        }
+    }
+
+    private void releaseMediaPlayer() {
+        if (mediaPlayer != null) {
+            handler.removeCallbacks(updateSeekBarRunnable);
+            mediaPlayer.release();
+            mediaPlayer = null;
+        }
+    }
+
+    private void setupAudioPlayer(String path) {
+        releaseMediaPlayer();
+        try {
+            mediaPlayer = new MediaPlayer();
+            mediaPlayer.setDataSource(path);
+            mediaPlayer.prepare();
+
+            seekBarAudio.setMax(mediaPlayer.getDuration());
+            updateDurationText();
+            setAudioControlsEnabled(true);
+            layoutAudioPlayer.setVisibility(View.VISIBLE);
+
+            mediaPlayer.setOnCompletionListener(mp -> {
+                btnPause.setVisibility(View.GONE);
+                btnPlay.setVisibility(View.VISIBLE);
+                seekBarAudio.setProgress(0);
+                handler.removeCallbacks(updateSeekBarRunnable);
+            });
+
+        } catch (Exception e) {
+            Log.e("AudioPlayer", "Error preparing audio", e);
+            Toast.makeText(getContext(), "Gagal memuat audio", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void processSelectedFile(Uri uri) {
+        try {
+            // 1. Ambil nama file asli
+            String fileName = getFileNameFromUri(uri);
+            if (fileName == null) fileName = "audio_local.mp3";
+
+            // 2. Salin konten URI ke temporary file di cache aplikasi
+            File tempFile = new File(requireContext().getCacheDir(), "temp_audio_input.mp3");
+
+            // Reset/Hapus file lama jika ada agar bersih
+            if (tempFile.exists()) {
+                tempFile.delete();
+            }
+
+            InputStream inputStream = requireContext().getContentResolver().openInputStream(uri);
+            FileOutputStream outputStream = new FileOutputStream(tempFile);
+
+            byte[] buffer = new byte[1024];
+            int length;
+            while ((length = inputStream.read(buffer)) > 0) {
+                outputStream.write(buffer, 0, length);
+            }
+
+            outputStream.close();
+            inputStream.close();
+
+            // 3. Update variabel global
+            this.downloadedFilePath = tempFile.getAbsolutePath();
+            this.audioTitle = fileName;
+
+            // 4. Update UI Info
+            resultTextView.setText("File Siap: " + audioTitle);
+
+            // Aktifkan tombol analisis
+            buttonDetectPitch.setVisibility(View.VISIBLE);
+            buttonDetectPitch.setEnabled(true);
+            buttonDownload.setVisibility(View.GONE);
+            setupAudioPlayer(downloadedFilePath);
+
+            Toast.makeText(getContext(), "File dimuat & Siap Diputar", Toast.LENGTH_SHORT).show();
+
+        } catch (Exception e) {
+            Log.e("PickFile", "Error processing file", e);
+            Toast.makeText(getContext(), "Gagal memproses file", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    // Helper untuk mengambil nama file dari URI
+    private String getFileNameFromUri(Uri uri) {
+        String result = null;
+        if (uri.getScheme().equals("content")) {
+            try (Cursor cursor = requireContext().getContentResolver().query(uri, null, null, null, null)) {
+                if (cursor != null && cursor.moveToFirst()) {
+                    int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                    if(index != -1) result = cursor.getString(index);
+                }
+            }
+        }
+        if (result == null) {
+            result = uri.getPath();
+            int cut = result.lastIndexOf('/');
+            if (cut != -1) {
+                result = result.substring(cut + 1);
+            }
+        }
+        return result;
     }
 
     private final BroadcastReceiver onDownloadComplete = new BroadcastReceiver() {
@@ -142,6 +327,7 @@ public class HomeFragment extends Fragment {
                         buttonDetectPitch.setVisibility(View.VISIBLE);
                         buttonDetectPitch.setEnabled(true);
                         resultTextView.setText("Unduhan Selesai. Siap Analisis.");
+                        setupAudioPlayer(downloadedFilePath);
 
                     } else {
                         Toast.makeText(context, "Unduhan Gagal / Belum Selesai", Toast.LENGTH_SHORT).show();
@@ -183,6 +369,7 @@ public class HomeFragment extends Fragment {
     @Override
     public void onDestroy() {
         super.onDestroy();
+        releaseMediaPlayer();
         if (receiverRegistered) {
             requireActivity().unregisterReceiver(onDownloadComplete);
             receiverRegistered = false;
@@ -199,9 +386,62 @@ public class HomeFragment extends Fragment {
         buttonDownload = view.findViewById(R.id.button_download);
         buttonDetectPitch = view.findViewById(R.id.button_detect_pitch);
         textViewPitchResult = view.findViewById(R.id.textview_pitch_result);
+        btnPlay = view.findViewById(R.id.btn_play);
+        btnPause = view.findViewById(R.id.btn_pause);
+        seekBarAudio = view.findViewById(R.id.seekbar_audio);
+        tvDuration = view.findViewById(R.id.tv_duration);
+        buttonPickFile = view.findViewById(R.id.btn_pick_file);
+        layoutAudioPlayer = view.findViewById(R.id.layout_audio_player);
 
+        buttonPickFile.setOnClickListener(v -> {
+            pickAudioLauncher.launch("audio/*");
+        });
         buttonDetectPitch.setEnabled(false);
+        setAudioControlsEnabled(false);
+        buttonConvert.setOnClickListener(v -> {
+            String youtubeUrl = editText.getText().toString().trim();
+            if (youtubeUrl.isEmpty()) {
+                Toast.makeText(getContext(), "Silakan masukkan URL", Toast.LENGTH_SHORT).show();
+                return;
+            }
 
+            // Reset UI
+            resultTextView.setText("Memproses...");
+            buttonDownload.setVisibility(View.GONE);
+            layoutAudioPlayer.setVisibility(View.GONE); // SEMBUNYIKAN PLAYER SAAT RESET
+            releaseMediaPlayer(); // Matikan lagu sebelumnya
+
+            downloadLink = "";
+            audioTitle = "";
+            downloadedFilePath = null;
+            buttonDetectPitch.setEnabled(false);
+
+            homeViewModel.convertYoutubeUrl(youtubeUrl);
+        });
+        // Listener Tombol
+        btnPlay.setOnClickListener(v -> playAudio());
+        btnPause.setOnClickListener(v -> pauseAudio());
+        seekBarAudio.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                if (fromUser && mediaPlayer != null) {
+                    mediaPlayer.seekTo(progress);
+                    updateDurationText();
+                }
+            }
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+                if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+                    handler.removeCallbacks(updateSeekBarRunnable); // Stop update saat digeser user
+                }
+            }
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+                    handler.post(updateSeekBarRunnable); // Resume update setelah dilepas
+                }
+            }
+        });
         // Setup listener untuk tombol
         buttonConvert.setOnClickListener(v -> {
             String youtubeUrl = editText.getText().toString().trim();
@@ -216,7 +456,6 @@ public class HomeFragment extends Fragment {
             audioTitle = "";
             downloadedFilePath = null;
             buttonDetectPitch.setEnabled(false);
-            textViewPitchResult.setText("Hasil analisis akor akan muncul di sini.");
 
             homeViewModel.convertYoutubeUrl(youtubeUrl);
         });

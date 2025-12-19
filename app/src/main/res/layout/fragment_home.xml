@@ -33,6 +33,12 @@
                 android:id="@+id/button_convert"
                 android:text="Convert Audio"
                 />
+            <Button
+                android:id="@+id/btn_pick_file"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Pilih File Dari File Explorer"
+                android:layout_marginBottom="8dp"/>
             <TextView
                 android:id="@+id/textview_result"
                 android:layout_width="match_parent"
@@ -62,6 +68,47 @@
                 android:text="Deteksi Chords dari Audio"
                 android:visibility="gone"
                 tools:visibility="visible"/>
+            <LinearLayout
+                android:id="@+id/layout_audio_player"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="16dp"
+                android:visibility="gone">
+
+                <ImageButton
+                    android:id="@+id/btn_play"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:src="@android:drawable/ic_media_play"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Play" />
+
+                <ImageButton
+                    android:id="@+id/btn_pause"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:src="@android:drawable/ic_media_pause"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:visibility="gone"
+                    android:contentDescription="Pause" />
+
+                <SeekBar
+                    android:id="@+id/seekbar_audio"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp" />
+
+                <TextView
+                    android:id="@+id/tv_duration"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="00:00 / 00:00"
+                    android:textSize="12sp"
+                    android:layout_marginStart="8dp"/>
+            </LinearLayout>
             <TextView
                 android:id="@+id/textview_pitch_result"
                 android:layout_width="match_parent"
