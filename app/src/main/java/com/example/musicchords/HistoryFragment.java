@@ -1,64 +1,113 @@
 package com.example.musicchords;
 
 import android.os.Bundle;
-
-import androidx.fragment.app.Fragment;
-
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.TextView;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.fragment.app.Fragment;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.firestore.DocumentSnapshot;
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.Query;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 
-/**
- * A simple {@link Fragment} subclass.
- * Use the {@link HistoryFragment#newInstance} factory method to
- * create an instance of this fragment.
- */
 public class HistoryFragment extends Fragment {
 
-    // TODO: Rename parameter arguments, choose names that match
-    // the fragment initialization parameters, e.g. ARG_ITEM_NUMBER
-    private static final String ARG_PARAM1 = "param1";
-    private static final String ARG_PARAM2 = "param2";
-
-    // TODO: Rename and change types of parameters
-    private String mParam1;
-    private String mParam2;
-
-    public HistoryFragment() {
-        // Required empty public constructor
-    }
-
-    /**
-     * Use this factory method to create a new instance of
-     * this fragment using the provided parameters.
-     *
-     * @param param1 Parameter 1.
-     * @param param2 Parameter 2.
-     * @return A new instance of fragment HistoryFragment.
-     */
-    // TODO: Rename and change types and number of parameters
-    public static HistoryFragment newInstance(String param1, String param2) {
-        HistoryFragment fragment = new HistoryFragment();
-        Bundle args = new Bundle();
-        args.putString(ARG_PARAM1, param1);
-        args.putString(ARG_PARAM2, param2);
-        fragment.setArguments(args);
-        return fragment;
-    }
+    private RecyclerView recyclerView;
+    private TextView emptyView;
+    private HistoryAdapter adapter;
+    private List<ChordHistory> historyList;
 
     @Override
-    public void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        if (getArguments() != null) {
-            mParam1 = getArguments().getString(ARG_PARAM1);
-            mParam2 = getArguments().getString(ARG_PARAM2);
-        }
-    }
-
-    @Override
-    public View onCreateView(LayoutInflater inflater, ViewGroup container,
-                             Bundle savedInstanceState) {
-        // Inflate the layout for this fragment
+    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
         return inflater.inflate(R.layout.fragment_history, container, false);
+    }
+
+    @Override
+    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+
+        recyclerView = view.findViewById(R.id.recycler_history);
+        emptyView = view.findViewById(R.id.tv_empty);
+
+        recyclerView.setLayoutManager(new LinearLayoutManager(getContext()));
+        historyList = new ArrayList<>();
+        adapter = new HistoryAdapter(historyList);
+        recyclerView.setAdapter(adapter);
+
+        loadHistory();
+    }
+
+    private void loadHistory() {
+        String uid = FirebaseAuth.getInstance().getUid();
+        if (uid == null) return;
+
+        FirebaseFirestore.getInstance()
+                .collection("users").document(uid).collection("history")
+                .orderBy("timestamp", Query.Direction.DESCENDING)
+                .addSnapshotListener((value, error) -> {
+                    if (error != null) return;
+
+                    historyList.clear();
+                    if (value != null && !value.isEmpty()) {
+                        for (DocumentSnapshot doc : value.getDocuments()) {
+                            historyList.add(doc.toObject(ChordHistory.class));
+                        }
+                        emptyView.setVisibility(View.GONE);
+                    } else {
+                        emptyView.setVisibility(View.VISIBLE);
+                    }
+                    adapter.notifyDataSetChanged();
+                });
+    }
+
+    // === INNER CLASS ADAPTER ===
+    private class HistoryAdapter extends RecyclerView.Adapter<HistoryAdapter.ViewHolder> {
+        private List<ChordHistory> list;
+        private SimpleDateFormat sdf = new SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault());
+
+        public HistoryAdapter(List<ChordHistory> list) { this.list = list; }
+
+        @NonNull
+        @Override
+        public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            // Menggunakan android.R.layout.simple_list_item_2 bawaan Android untuk simpel
+            // Anda bisa membuat custom layout xml sendiri jika mau tampilan lebih bagus
+            View v = LayoutInflater.from(parent.getContext())
+                    .inflate(android.R.layout.simple_list_item_2, parent, false);
+            return new ViewHolder(v);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
+            ChordHistory item = list.get(position);
+            holder.text1.setText(item.getTitle());
+
+            String dateStr = "";
+            if(item.getTimestamp() != null) {
+                dateStr = sdf.format(item.getTimestamp().toDate());
+            }
+            holder.text2.setText(dateStr + " - " + item.getResult());
+        }
+
+        @Override
+        public int getItemCount() { return list.size(); }
+
+        class ViewHolder extends RecyclerView.ViewHolder {
+            TextView text1, text2;
+            public ViewHolder(@NonNull View itemView) {
+                super(itemView);
+                text1 = itemView.findViewById(android.R.id.text1);
+                text2 = itemView.findViewById(android.R.id.text2);
+            }
+        }
     }
 }

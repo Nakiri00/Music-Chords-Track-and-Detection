@@ -21,6 +21,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
+import android.os.Looper;
 import android.provider.OpenableColumns;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -35,6 +36,9 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import com.google.firebase.Timestamp;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
@@ -60,6 +64,7 @@ import java.io.ByteArrayOutputStream;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -98,7 +103,7 @@ public class HomeFragment extends Fragment {
     private ImageButton btnPlay, btnPause;
     private SeekBar seekBarAudio;
     private TextView tvDuration;
-    private Handler handler = new Handler();
+    private Handler handler = new Handler(Looper.getMainLooper());
     private Runnable updateSeekBarRunnable;
     private Button buttonPickFile;
     private LinearLayout layoutAudioPlayer; // Tambahkan ini
@@ -314,22 +319,23 @@ public class HomeFragment extends Fragment {
                 if (cursor != null && cursor.moveToFirst()) {
                     int statusIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS);
                     int status = cursor.getInt(statusIndex);
-
                     if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                        String fileName = audioTitle.replaceAll("[^a-zA-Z0-9.-]", "_") + ".mp3";
-                        File file = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), fileName);
-                        downloadedFilePath = file.getAbsolutePath();
+                        // Ambil URI file langsung dari DownloadManager
+                        int uriIndex = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI);
+                        String uriString = cursor.getString(uriIndex);
 
-                        Log.d("Download", "File path fixed: " + downloadedFilePath);
-                        Toast.makeText(context, "Unduhan selesai: " + audioTitle, Toast.LENGTH_SHORT).show();
+                        if (uriString != null) {
+                            Uri fileUri = Uri.parse(uriString);
 
-                        // Update UI
-                        buttonDetectPitch.setVisibility(View.VISIBLE);
-                        buttonDetectPitch.setEnabled(true);
-                        resultTextView.setText("Unduhan Selesai. Siap Analisis.");
-                        setupAudioPlayer(downloadedFilePath);
+                            // Kita gunakan logika yang sama dengan "Pilih File Manual"
+                            // untuk menyalinnya ke cache agar bisa diakses path-nya
+                            processSelectedFile(fileUri);
 
-                    } else {
+                            // Update UI Text (Override teks yang diset processSelectedFile jika perlu)
+                            resultTextView.setText("Unduhan Selesai. Siap Analisis.");
+                        }
+                    }
+                    else {
                         Toast.makeText(context, "Unduhan Gagal / Belum Selesai", Toast.LENGTH_SHORT).show();
                     }
                     cursor.close();
@@ -728,6 +734,7 @@ public class HomeFragment extends Fragment {
                                 textViewPitchResult.setText(sb.toString());
                                 buttonDetectPitch.setEnabled(true);
                                 resultTextView.setText("Analisis selesai.");
+                                saveToFirestore(audioTitle, downloadedFilePath, sb.toString());
                             });
                         }
                     }
@@ -861,8 +868,6 @@ public class HomeFragment extends Fragment {
                         // small sleep to avoid busy loop
                         try { Thread.sleep(10); } catch (InterruptedException ignored) {}
                     }
-                } else if (outIndex == MediaCodec.INFO_OUTPUT_BUFFERS_CHANGED) {
-                    // ignored for API >= 21 (we use getOutputBuffer)
                 }
             }
 
@@ -889,6 +894,31 @@ public class HomeFragment extends Fragment {
         } catch (Exception e) {
             Log.e("DecodeAudio", "Decode error", e);
             return null;
+        }
+    }
+
+    private void saveToFirestore(String title, String path, String resultText) {
+        FirebaseFirestore db = FirebaseFirestore.getInstance();
+        String uid = FirebaseAuth.getInstance().getUid();
+
+        if (uid != null) {
+            ChordHistory history = new ChordHistory(
+                    title,
+                    path,
+                    resultText,
+                    new Timestamp(new Date())
+            );
+
+            // Simpan ke collection: users -> {uid} -> history
+            db.collection("users").document(uid).collection("history")
+                    .add(history)
+                    .addOnSuccessListener(documentReference -> {
+                        Log.d("Firestore", "DocumentSnapshot added with ID: " + documentReference.getId());
+                        // Opsional: Tampilkan toast kecil "Disimpan ke riwayat"
+                    })
+                    .addOnFailureListener(e -> {
+                        Log.w("Firestore", "Error adding document", e);
+                    });
         }
     }
 
