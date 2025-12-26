@@ -18,9 +18,35 @@ public class ChordHistory {
         this.timestamp = timestamp;
     }
 
-    // Getter methods
-    public String getTitle() { return title; }
-    public String getFilePath() { return filePath; }
-    public String getResult() { return result; }
-    public Timestamp getTimestamp() { return timestamp; }
+    public String getTitle() {
+        return title;
+    }
+
+    public void setTitle(String title) {
+        this.title = title;
+    }
+
+    public String getFilePath() {
+        return filePath;
+    }
+
+    public void setFilePath(String filePath) {
+        this.filePath = filePath;
+    }
+
+    public String getResult() {
+        return result;
+    }
+
+    public void setResult(String result) {
+        this.result = result;
+    }
+
+    public Timestamp getTimestamp() {
+        return timestamp;
+    }
+
+    public void setTimestamp(Timestamp timestamp) {
+        this.timestamp = timestamp;
+    }
 }

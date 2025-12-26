@@ -1,5 +1,6 @@
 package com.example.musicchords;
 
+import android.app.AlertDialog;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -79,35 +80,61 @@ public class HistoryFragment extends Fragment {
         @NonNull
         @Override
         public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            // Menggunakan android.R.layout.simple_list_item_2 bawaan Android untuk simpel
-            // Anda bisa membuat custom layout xml sendiri jika mau tampilan lebih bagus
+            // Ubah ini untuk menggunakan layout kartu yang baru dibuat
             View v = LayoutInflater.from(parent.getContext())
-                    .inflate(android.R.layout.simple_list_item_2, parent, false);
+                    .inflate(R.layout.item_history_card, parent, false);
             return new ViewHolder(v);
         }
 
         @Override
         public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
             ChordHistory item = list.get(position);
-            holder.text1.setText(item.getTitle());
 
-            String dateStr = "";
+            // 1. Set Data ke Tampilan Kartu
+            // Karena di database kita baru punya 'title', kita pakai itu dulu.
+            // (Tips: Jika judul dari YouTube biasanya "Artis - Lagu", Anda bisa memisahnya dengan fungsi split("-") jika mau).
+            holder.tvTitle.setText(item.getTitle() != null ? item.getTitle() : "Tanpa Judul");
+
+            String dateStr = "-";
             if(item.getTimestamp() != null) {
                 dateStr = sdf.format(item.getTimestamp().toDate());
             }
-            holder.text2.setText(dateStr + " - " + item.getResult());
+            holder.tvDate.setText(dateStr);
+
+            // 2. Logika KLIK untuk Memunculkan Hasil (Pop-up Dialog)
+            holder.itemView.setOnClickListener(v -> {
+                showResultDialog(item.getTitle(), item.getResult());
+            });
         }
 
         @Override
         public int getItemCount() { return list.size(); }
 
         class ViewHolder extends RecyclerView.ViewHolder {
-            TextView text1, text2;
+            TextView tvTitle, tvDate;
+
             public ViewHolder(@NonNull View itemView) {
                 super(itemView);
-                text1 = itemView.findViewById(android.R.id.text1);
-                text2 = itemView.findViewById(android.R.id.text2);
+                // Binding ke ID yang ada di item_history_card.xml
+                tvTitle = itemView.findViewById(R.id.tv_history_title);
+                tvDate = itemView.findViewById(R.id.tv_history_date);
             }
         }
+    }
+
+    // Fungsi Helper untuk menampilkan Pop-up Hasil
+    private void showResultDialog(String title, String result) {
+        new AlertDialog.Builder(getContext())
+                .setTitle("Hasil: " + title)
+                .setMessage(result != null ? result : "Tidak ada data hasil.")
+                .setPositiveButton("Tutup", (dialog, which) -> dialog.dismiss())
+                .setNeutralButton("Salin", (dialog, which) -> {
+                    // Opsional: Fitur copy ke clipboard
+                    android.content.ClipboardManager clipboard = (android.content.ClipboardManager)
+                            requireContext().getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+                    android.content.ClipData clip = android.content.ClipData.newPlainText("Chord Result", result);
+                    clipboard.setPrimaryClip(clip);
+                })
+                .show();
     }
 }

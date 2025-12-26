@@ -26,23 +26,22 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
         binding = ActivityMainBinding.inflate(getLayoutInflater());
+        setContentView(binding.getRoot());
         FirebaseAuth auth = FirebaseAuth.getInstance();
-        FirebaseUser currentUser = auth.getCurrentUser();
-
-        if (currentUser == null) {
+        if (auth.getCurrentUser() == null) {
+            // Jika belum login, login dulu, BARU buka HomeFragment
             auth.signInAnonymously()
                     .addOnCompleteListener(this, task -> {
                         if (task.isSuccessful()) {
-                            Log.d("Auth", "signInAnonymously:success");
-                            // User berhasil login
+                            Log.d("Auth", "Login sukses");
+                            switchFragment(new HomeFragment()); // Buka Home setelah sukses
                         } else {
-                            Log.w("Auth", "signInAnonymously:failure", task.getException());
-                            Toast.makeText(MainActivity.this, "Authentication failed.", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(MainActivity.this, "Gagal Login Database.", Toast.LENGTH_SHORT).show();
                         }
                     });
+        } else {
+            switchFragment(new HomeFragment());
         }
-        setContentView(binding.getRoot());
-        switchFragment(new HomeFragment());
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
