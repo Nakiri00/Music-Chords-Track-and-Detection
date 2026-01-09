@@ -5,119 +5,161 @@
     android:layout_height="match_parent"
     tools:context=".HomeFragment">
 
-    <!-- TODO: Update blank fragment layout -->
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent">
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
+            android:layout_height="wrap_content"
             android:layout_marginStart="16dp"
             android:layout_marginEnd="16dp"
-            android:orientation="vertical">
+            android:orientation="vertical"
+            android:paddingBottom="32dp">
+
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Test"
+                android:text="Music Chords"
                 android:textStyle="bold"
-                android:textSize="16dp"/>
+                android:textSize="20sp"
+                android:layout_marginTop="16dp"
+                android:layout_marginBottom="8dp"/>
+
             <EditText
                 android:id="@+id/url_input"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="Masukan URL Musik"
-                />
+                android:hint="Masukan URL YouTube Music"
+                android:inputType="textUri"
+                android:minHeight="48dp" />
+
             <Button
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:id="@+id/button_convert"
-                android:text="Convert Audio"
-                />
-            <Button
-                android:id="@+id/btn_pick_file"
+                android:text="Convert dari URL"
+                android:layout_marginTop="8dp"/>
+
+            <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Pilih File Dari File Explorer"
-                android:layout_marginBottom="8dp"/>
+                android:text="ATAU"
+                android:layout_gravity="center"
+                android:layout_margin="8dp"
+                android:textStyle="bold"/>
+
+            <Button
+                android:id="@+id/btn_pick_file"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Pilih File Lokal"
+                android:layout_marginBottom="16dp"/>
+
             <TextView
                 android:id="@+id/textview_result"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"/>
+                android:layout_height="wrap_content"
+                android:textAlignment="center"
+                android:text="Siap memproses audio" />
+
             <ProgressBar
                 android:id="@+id/progress_bar"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="16dp"
-                android:layout_marginEnd="16dp"
+                android:layout_gravity="center"
+                android:layout_marginTop="8dp"
                 android:visibility="gone"/>
+
             <Button
                 android:id="@+id/button_download"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
                 android:layout_gravity="center_horizontal"
+                android:layout_marginTop="8dp"
                 android:text="Download Audio"
                 android:visibility="gone"
                 tools:visibility="visible" />
+
             <Button
                 android:id="@+id/button_detect_pitch"
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_gravity="center_horizontal"
-                android:layout_marginTop="8dp"
-                android:text="Deteksi Chords dari Audio"
+                android:layout_marginTop="16dp"
+                android:text="Analisis &amp; Deteksi Chord"
                 android:visibility="gone"
                 tools:visibility="visible"/>
+
             <LinearLayout
                 android:id="@+id/layout_audio_player"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:layout_marginTop="16dp"
-                android:visibility="gone">
-
-                <ImageButton
-                    android:id="@+id/btn_play"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:src="@android:drawable/ic_media_play"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:contentDescription="Play" />
-
-                <ImageButton
-                    android:id="@+id/btn_pause"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:src="@android:drawable/ic_media_pause"
-                    android:background="?attr/selectableItemBackgroundBorderless"
-                    android:visibility="gone"
-                    android:contentDescription="Pause" />
-
-                <SeekBar
-                    android:id="@+id/seekbar_audio"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:layout_marginStart="8dp" />
+                android:orientation="vertical"
+                android:layout_marginTop="24dp"
+                android:padding="16dp"
+                android:visibility="gone"
+                tools:visibility="visible">
 
                 <TextView
-                    android:id="@+id/tv_duration"
-                    android:layout_width="wrap_content"
+                    android:id="@+id/tv_playing_title"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="00:00 / 00:00"
-                    android:textSize="12sp"
-                    android:layout_marginStart="8dp"/>
+                    android:text="Judul Lagu"
+                    android:textSize="18sp"
+                    android:textStyle="bold"
+                    android:gravity="center"
+                    android:maxLines="2"
+                    android:ellipsize="end"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:id="@+id/tv_result_chord"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="-"
+                    android:textSize="48sp"
+                    android:textStyle="bold"
+                    android:gravity="center"
+                    android:layout_marginBottom="16dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <ImageButton
+                        android:id="@+id/btn_play"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:src="@android:drawable/ic_media_play"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:contentDescription="Play" />
+
+                    <ImageButton
+                        android:id="@+id/btn_pause"
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:src="@android:drawable/ic_media_pause"
+                        android:background="?attr/selectableItemBackgroundBorderless"
+                        android:visibility="gone"
+                        android:contentDescription="Pause" />
+
+                    <SeekBar
+                        android:id="@+id/seekbar_audio"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="8dp" />
+
+                    <TextView
+                        android:id="@+id/tv_duration"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="00:00 / 00:00"
+                        android:textSize="12sp"
+                        android:layout_marginStart="8dp"/>
+                </LinearLayout>
             </LinearLayout>
-            <TextView
-                android:id="@+id/textview_pitch_result"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:gravity="center"
-                android:textStyle="bold"
-                tools:text="Nada terdeteksi: A4 (440.0 Hz)"/>
         </LinearLayout>
     </ScrollView>
-
 </FrameLayout>

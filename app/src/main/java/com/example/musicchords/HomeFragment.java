@@ -18,7 +18,6 @@ import androidx.lifecycle.ViewModelProvider;
 import android.app.DownloadManager;
 import android.content.Context;
 import android.net.Uri;
-import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
@@ -46,16 +45,14 @@ import com.google.gson.JsonSyntaxException;
 import be.tarsos.dsp.AudioDispatcher;
 import be.tarsos.dsp.AudioEvent;
 import be.tarsos.dsp.AudioProcessor;
-import be.tarsos.dsp.SpectralPeakProcessor;
 import be.tarsos.dsp.util.fft.FFT;
-import be.tarsos.dsp.io.jvm.AudioDispatcherFactory;
+
 import android.media.MediaCodec;
 import android.media.MediaExtractor;
 import android.media.MediaFormat;
 import be.tarsos.dsp.io.UniversalAudioInputStream;
 import be.tarsos.dsp.io.TarsosDSPAudioFormat;
 
-import java.io.BufferedInputStream;
 import java.io.ByteArrayInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
@@ -68,10 +65,6 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-
-
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * A simple {@link Fragment} subclass.
@@ -88,7 +81,7 @@ public class HomeFragment extends Fragment {
     private HomeViewModel homeViewModel;
     private Button buttonConvert;
     private Button buttonDetectPitch;
-    private TextView textViewPitchResult;
+    private TextView tvResultChord;
     private EditText editText;
     private TextView resultTextView;
     private ProgressBar loadingIndicator;
@@ -98,7 +91,7 @@ public class HomeFragment extends Fragment {
     private String audioTitle = "";
     private String downloadedFilePath = null;
     private long downloadID;
-
+    private TextView tvPlayingTitle;
     private MediaPlayer mediaPlayer;
     private ImageButton btnPlay, btnPause;
     private SeekBar seekBarAudio;
@@ -106,7 +99,11 @@ public class HomeFragment extends Fragment {
     private Handler handler = new Handler(Looper.getMainLooper());
     private Runnable updateSeekBarRunnable;
     private Button buttonPickFile;
-    private LinearLayout layoutAudioPlayer; // Tambahkan ini
+    private LinearLayout layoutAudioPlayer;
+    private List<ChordTimestamp> detectedChords = new ArrayList<>();
+
+    private Handler chordHandler = new Handler(Looper.getMainLooper());
+    private Runnable chordRunnable;
 
     private boolean receiverRegistered = false;
 
@@ -146,12 +143,54 @@ public class HomeFragment extends Fragment {
             }
     );
 
+    private void startChordSync() {
+        chordRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+                    // 1. Dapatkan posisi lagu saat ini (ubah ke detik)
+                    double currentSeconds = mediaPlayer.getCurrentPosition() / 1000.0;
+
+                    // 2. Cari chord yang cocok dengan waktu ini
+                    String chordToShow = getCurrentChord(currentSeconds);
+
+                    // 3. Update UI (Pastikan TextView berukuran besar/jelas)
+                    tvResultChord.setText(chordToShow);
+
+                    // 4. Ulangi pengecekan setiap 100ms
+                    chordHandler.postDelayed(this, 100);
+                }
+            }
+        };
+        chordHandler.post(chordRunnable);
+    }
+
+    // Fungsi helper untuk mencari chord terdekat
+    private String getCurrentChord(double currentTime) {
+        String currentChord = "-";
+        // Loop sederhana (bisa dioptimalkan dengan Binary Search jika data banyak)
+        for (ChordTimestamp item : detectedChords) {
+            if (currentTime >= item.timeSeconds) {
+                currentChord = item.chordName;
+            } else {
+                // Karena list berurutan waktu, jika waktu item sudah lebih besar dari currentTime, stop.
+                break;
+            }
+        }
+        return currentChord;
+    }
+
+    // JANGAN LUPA: Hentikan handler saat pause atau stop
+    private void stopChordSync() {
+        chordHandler.removeCallbacks(chordRunnable);
+    }
     private void playAudio() {
         if (mediaPlayer != null) {
             mediaPlayer.start();
             btnPlay.setVisibility(View.GONE);
             btnPause.setVisibility(View.VISIBLE);
             updateSeekBar();
+            startChordSync();
         }
     }
 
@@ -161,6 +200,7 @@ public class HomeFragment extends Fragment {
             btnPause.setVisibility(View.GONE);
             btnPlay.setVisibility(View.VISIBLE);
             handler.removeCallbacks(updateSeekBarRunnable);
+            stopChordSync();
         }
     }
 
@@ -216,6 +256,10 @@ public class HomeFragment extends Fragment {
             mediaPlayer = new MediaPlayer();
             mediaPlayer.setDataSource(path);
             mediaPlayer.prepare();
+
+            if (tvPlayingTitle != null) {
+                tvPlayingTitle.setText(audioTitle);
+            }
 
             seekBarAudio.setMax(mediaPlayer.getDuration());
             updateDurationText();
@@ -391,13 +435,14 @@ public class HomeFragment extends Fragment {
         editText = view.findViewById(R.id.url_input);
         buttonDownload = view.findViewById(R.id.button_download);
         buttonDetectPitch = view.findViewById(R.id.button_detect_pitch);
-        textViewPitchResult = view.findViewById(R.id.textview_pitch_result);
+        tvResultChord = view.findViewById(R.id.tv_result_chord);
         btnPlay = view.findViewById(R.id.btn_play);
         btnPause = view.findViewById(R.id.btn_pause);
         seekBarAudio = view.findViewById(R.id.seekbar_audio);
         tvDuration = view.findViewById(R.id.tv_duration);
         buttonPickFile = view.findViewById(R.id.btn_pick_file);
         layoutAudioPlayer = view.findViewById(R.id.layout_audio_player);
+        tvPlayingTitle = view.findViewById(R.id.tv_playing_title);
 
         buttonPickFile.setOnClickListener(v -> {
             pickAudioLauncher.launch("audio/*");
@@ -477,7 +522,7 @@ public class HomeFragment extends Fragment {
 
         buttonDetectPitch.setOnClickListener(v -> {
             if (downloadedFilePath != null && !downloadedFilePath.isEmpty()) {
-                textViewPitchResult.setText("Menganalisis progesi akor...");
+                tvResultChord.setText("Menganalisis progesi akor...");
                 analyzeChords(downloadedFilePath);
             } else {
                 Toast.makeText(getContext(), "Unduh file audio terlebih dahulu atau tunggu unduhan selesai.", Toast.LENGTH_SHORT).show();
@@ -571,6 +616,7 @@ public class HomeFragment extends Fragment {
 
     private void analyzeChords(String audioPath) {
         buttonDetectPitch.setEnabled(false);
+        detectedChords.clear();
         new Thread(() -> {
             try {
                 File audioFile = new File(audioPath);
@@ -589,7 +635,7 @@ public class HomeFragment extends Fragment {
                 if (decoded == null) {
                     if (getActivity() != null) {
                         getActivity().runOnUiThread(() ->
-                                textViewPitchResult.setText("Gagal decode audio menggunakan MediaExtractor")
+                                tvResultChord.setText("Gagal decode audio menggunakan MediaExtractor")
                         );
                     }
                     return;
@@ -638,7 +684,7 @@ public class HomeFragment extends Fragment {
                 final FFT fft = new FFT(bufferSize);
                 final float[] spectrum = new float[bufferSize / 2];
 
-                Map<Double, String> detectedChords = new TreeMap<>();
+//                Map<Double, String> detectedChords = new TreeMap<>();
                 List<String> progression = new ArrayList<>();
                 final String[] lastStableChord = {""}; // Chord terakhir yang valid ditampilkan
                 final String[] potentialChord = {""};   // Kandidat chord baru
@@ -659,7 +705,7 @@ public class HomeFragment extends Fragment {
                             if (f > maxAmp) maxAmp = f;
                         }
 
-                        // --- PERBAIKAN 1: Turunkan threshold ---
+                        // Turunkan threshold
                         if (maxAmp > 0.01f) {
                             boolean[] chroma = new boolean[12];
                             for (int i = 0; i < spectrum.length; i++) {
@@ -694,13 +740,10 @@ public class HomeFragment extends Fragment {
                                 // Jika chord sudah stabil selama X frame, dan BEDA dari yang terakhir ditampilkan
                                 if (stableCount[0] >= MIN_STABLE_FRAMES) {
                                     if (!currentChord.equals(lastStableChord[0])) {
-                                        // CATAT PERUBAHAN
-                                        detectedChords.put(t, currentChord);
-                                        progression.add(currentChord); // List untuk UI
-
-                                        lastStableChord[0] = currentChord; // Update chord aktif
-
-                                        // Log agar Anda bisa memantau hasilnya
+                                        synchronized (detectedChords) {
+                                            detectedChords.add(new ChordTimestamp(t, currentChord));
+                                        }
+                                        lastStableChord[0] = currentChord;
                                         Log.d("ChordFinal", "Ganti ke: " + currentChord + " di detik " + t);
                                     }
                                 }
@@ -721,33 +764,46 @@ public class HomeFragment extends Fragment {
                         if (detectedChords.isEmpty()) {
                             sb.append("Tidak ada chord yang terdeteksi.\n");
                         } else {
-                            for (Map.Entry<Double, String> entry : detectedChords.entrySet()) {
-                                int seconds = entry.getKey().intValue();
+                            for (ChordTimestamp item : detectedChords) {
+                                int seconds = (int) item.timeSeconds;
                                 String time = String.format("%02d:%02d", seconds / 60, seconds % 60);
                                 sb.append("[").append(time).append("] ")
-                                        .append(entry.getValue()).append("\n");
+                                        .append(item.chordName).append("\n");
                             }
                         }
 
+                        String fullLog = sb.toString();
+
+                        // Cek jumlah chord
+                        int chordCount = detectedChords.size();
+
                         if (getActivity() != null) {
                             getActivity().runOnUiThread(() -> {
-                                textViewPitchResult.setText(sb.toString());
+                                // TAMPILKAN JUMLAH CHORD UNTUK DEBUG
+                                if (chordCount > 0) {
+                                    tvResultChord.setText("Ready (" + chordCount + " Chords)");
+                                } else {
+                                    tvResultChord.setText("No Chords Found");
+                                }
+
                                 buttonDetectPitch.setEnabled(true);
-                                resultTextView.setText("Analisis selesai.");
-                                saveToFirestore(audioTitle, downloadedFilePath, sb.toString());
+                                resultTextView.setText("Analisis selesai. Total: " + chordCount + " chord.");
+                                saveToFirestore(audioTitle, downloadedFilePath, fullLog);
                             });
                         }
+
                     }
                 };
 
                 dispatcher.addAudioProcessor(chordProcessor);
                 dispatcher.run();
 
+
             } catch (Exception e) {
                 Log.e("ChordAnalysis", "Error analisis", e);
                 if (getActivity() != null) {
                     getActivity().runOnUiThread(() ->
-                            textViewPitchResult.setText("Error analisis: " + e.getMessage())
+                            tvResultChord.setText("Error analisis: " + e.getMessage())
                     );
                 }
             }
