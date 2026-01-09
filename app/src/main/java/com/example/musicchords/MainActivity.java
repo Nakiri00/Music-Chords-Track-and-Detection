@@ -98,4 +98,14 @@ public class MainActivity extends AppCompatActivity {
 
         activeFragment = targetFragment; // Update status aktif
     }
+
+    public void playSongFromHistory(Bundle bundle) {
+        // 1. Pindah tab ke Home (ini otomatis memanggil showHideFragment lewat listener)
+        binding.navMenu.setSelectedItemId(R.id.home);
+
+        // 2. Kirim data ke HomeFragment yang sudah ada (tanpa membuat baru)
+        if (homeFragment instanceof HomeFragment) {
+            ((HomeFragment) homeFragment).loadHistoryData(bundle);
+        }
+    }
 }

@@ -6,6 +6,8 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
+import android.widget.Toast;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
@@ -42,8 +44,31 @@ public class HistoryFragment extends Fragment {
         recyclerView.setLayoutManager(new LinearLayoutManager(getContext()));
         historyList = new ArrayList<>();
         adapter = new HistoryAdapter(historyList);
-        recyclerView.setAdapter(adapter);
+        adapter.setOnItemClickListener(historyItem -> {
+            // Validasi path file
+            if (historyItem.getFilePath() == null || historyItem.getFilePath().isEmpty()) {
+                Toast.makeText(getContext(), "File audio tidak ditemukan di data history.", Toast.LENGTH_SHORT).show();
+                return;
+            }
 
+            Bundle bundle = new Bundle();
+            bundle.putString("audioPath", historyItem.getFilePath());
+            bundle.putString("songTitle", historyItem.getTitle());
+            bundle.putString("chordData", historyItem.getResult());
+
+//            HomeFragment homeFragment = new HomeFragment();
+//            homeFragment.setArguments(bundle);
+//
+//            requireActivity().getSupportFragmentManager().beginTransaction()
+//                    .replace(R.id.main_frame, homeFragment)
+//                    .addToBackStack(null)
+//                    .commit();
+            if (getActivity() instanceof MainActivity) {
+                ((MainActivity) getActivity()).playSongFromHistory(bundle);
+            }
+        });
+
+        recyclerView.setAdapter(adapter);
         loadHistory();
     }
 
@@ -71,16 +96,28 @@ public class HistoryFragment extends Fragment {
     }
 
     // === INNER CLASS ADAPTER ===
-    private class HistoryAdapter extends RecyclerView.Adapter<HistoryAdapter.ViewHolder> {
+    private static class HistoryAdapter extends RecyclerView.Adapter<HistoryAdapter.ViewHolder> {
         private List<ChordHistory> list;
         private SimpleDateFormat sdf = new SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault());
+
+        // 1. Tambahkan variabel listener
+        private OnItemClickListener listener;
+
+        // 2. Interface agar Fragment bisa menangani klik
+        public interface OnItemClickListener {
+            void onItemClick(ChordHistory item);
+        }
+
+        // 3. Setter untuk listener
+        public void setOnItemClickListener(OnItemClickListener listener) {
+            this.listener = listener;
+        }
 
         public HistoryAdapter(List<ChordHistory> list) { this.list = list; }
 
         @NonNull
         @Override
         public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            // Ubah ini untuk menggunakan layout kartu yang baru dibuat
             View v = LayoutInflater.from(parent.getContext())
                     .inflate(R.layout.item_history_card, parent, false);
             return new ViewHolder(v);
@@ -90,9 +127,6 @@ public class HistoryFragment extends Fragment {
         public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
             ChordHistory item = list.get(position);
 
-            // 1. Set Data ke Tampilan Kartu
-            // Karena di database kita baru punya 'title', kita pakai itu dulu.
-            // (Tips: Jika judul dari YouTube biasanya "Artis - Lagu", Anda bisa memisahnya dengan fungsi split("-") jika mau).
             holder.tvTitle.setText(item.getTitle() != null ? item.getTitle() : "Tanpa Judul");
 
             String dateStr = "-";
@@ -101,9 +135,12 @@ public class HistoryFragment extends Fragment {
             }
             holder.tvDate.setText(dateStr);
 
-            // 2. Logika KLIK untuk Memunculkan Hasil (Pop-up Dialog)
+            // 4. UBAH LOGIKA KLIK DISINI
+            // Jangan panggil showResultDialog, tapi panggil listener
             holder.itemView.setOnClickListener(v -> {
-                showResultDialog(item.getTitle(), item.getResult());
+                if (listener != null) {
+                    listener.onItemClick(item);
+                }
             });
         }
 
@@ -115,7 +152,6 @@ public class HistoryFragment extends Fragment {
 
             public ViewHolder(@NonNull View itemView) {
                 super(itemView);
-                // Binding ke ID yang ada di item_history_card.xml
                 tvTitle = itemView.findViewById(R.id.tv_history_title);
                 tvDate = itemView.findViewById(R.id.tv_history_date);
             }
@@ -123,18 +159,18 @@ public class HistoryFragment extends Fragment {
     }
 
     // Fungsi Helper untuk menampilkan Pop-up Hasil
-    private void showResultDialog(String title, String result) {
-        new AlertDialog.Builder(getContext())
-                .setTitle("Hasil: " + title)
-                .setMessage(result != null ? result : "Tidak ada data hasil.")
-                .setPositiveButton("Tutup", (dialog, which) -> dialog.dismiss())
-                .setNeutralButton("Salin", (dialog, which) -> {
-                    // Opsional: Fitur copy ke clipboard
-                    android.content.ClipboardManager clipboard = (android.content.ClipboardManager)
-                            requireContext().getSystemService(android.content.Context.CLIPBOARD_SERVICE);
-                    android.content.ClipData clip = android.content.ClipData.newPlainText("Chord Result", result);
-                    clipboard.setPrimaryClip(clip);
-                })
-                .show();
-    }
+//    private void showResultDialog(String title, String result) {
+//        new AlertDialog.Builder(getContext())
+//                .setTitle("Hasil: " + title)
+//                .setMessage(result != null ? result : "Tidak ada data hasil.")
+//                .setPositiveButton("Tutup", (dialog, which) -> dialog.dismiss())
+//                .setNeutralButton("Salin", (dialog, which) -> {
+//                    // Opsional: Fitur copy ke clipboard
+//                    android.content.ClipboardManager clipboard = (android.content.ClipboardManager)
+//                            requireContext().getSystemService(android.content.Context.CLIPBOARD_SERVICE);
+//                    android.content.ClipData clip = android.content.ClipData.newPlainText("Chord Result", result);
+//                    clipboard.setPrimaryClip(clip);
+//                })
+//                .show();
+//    }
 }

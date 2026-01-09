@@ -37,6 +37,7 @@ import android.widget.Toast;
 
 import com.google.firebase.Timestamp;
 import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
@@ -138,7 +139,7 @@ public class HomeFragment extends Fragment {
             new ActivityResultContracts.GetContent(),
             uri -> {
                 if (uri != null) {
-                    processSelectedFile(uri);
+                    processSelectedFile(uri, audioTitle);
                 }
             }
     );
@@ -279,22 +280,18 @@ public class HomeFragment extends Fragment {
         }
     }
 
-    private void processSelectedFile(Uri uri) {
+    private void processSelectedFile(Uri uri, String customTitle) {
         try {
-            // 1. Ambil nama file asli
             String fileName = getFileNameFromUri(uri);
-            if (fileName == null) fileName = "audio_local.mp3";
 
-            // 2. Salin konten URI ke temporary file di cache aplikasi
-            File tempFile = new File(requireContext().getCacheDir(), "temp_audio_input.mp3");
+            if (fileName == null) fileName = "audio_" + System.currentTimeMillis() + ".mp3";
+            String safeFileName = fileName.replaceAll("[\\\\/:*?\"<>|]", "_");
+            String finalFileName = "history_" + safeFileName;
 
-            // Reset/Hapus file lama jika ada agar bersih
-            if (tempFile.exists()) {
-                tempFile.delete();
-            }
+            File uniqueFile = new File(requireContext().getFilesDir(), finalFileName);
 
             InputStream inputStream = requireContext().getContentResolver().openInputStream(uri);
-            FileOutputStream outputStream = new FileOutputStream(tempFile);
+            FileOutputStream outputStream = new FileOutputStream(uniqueFile);
 
             byte[] buffer = new byte[1024];
             int length;
@@ -304,25 +301,27 @@ public class HomeFragment extends Fragment {
 
             outputStream.close();
             inputStream.close();
+            this.downloadedFilePath = uniqueFile.getAbsolutePath();
 
-            // 3. Update variabel global
-            this.downloadedFilePath = tempFile.getAbsolutePath();
-            this.audioTitle = fileName;
+            if (customTitle != null && !customTitle.isEmpty()) {
+                this.audioTitle = customTitle;
+            } else {
+                this.audioTitle = fileName;
+            }
 
-            // 4. Update UI Info
-            resultTextView.setText("File Siap: " + audioTitle);
+            resultTextView.setText("File Siap: " + this.audioTitle); // Update info UI
 
-            // Aktifkan tombol analisis
             buttonDetectPitch.setVisibility(View.VISIBLE);
             buttonDetectPitch.setEnabled(true);
             buttonDownload.setVisibility(View.GONE);
+
             setupAudioPlayer(downloadedFilePath);
 
-            Toast.makeText(getContext(), "File dimuat & Siap Diputar", Toast.LENGTH_SHORT).show();
+            Toast.makeText(getContext(), "File dimuat: " + audioTitle, Toast.LENGTH_SHORT).show();
 
         } catch (Exception e) {
             Log.e("PickFile", "Error processing file", e);
-            Toast.makeText(getContext(), "Gagal memproses file", Toast.LENGTH_SHORT).show();
+            Toast.makeText(getContext(), "Gagal memproses file: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 
@@ -373,7 +372,7 @@ public class HomeFragment extends Fragment {
 
                             // Kita gunakan logika yang sama dengan "Pilih File Manual"
                             // untuk menyalinnya ke cache agar bisa diakses path-nya
-                            processSelectedFile(fileUri);
+                            processSelectedFile(fileUri, audioTitle);
 
                             // Update UI Text (Override teks yang diset processSelectedFile jika perlu)
                             resultTextView.setText("Unduhan Selesai. Siap Analisis.");
@@ -449,6 +448,9 @@ public class HomeFragment extends Fragment {
         });
         buttonDetectPitch.setEnabled(false);
         setAudioControlsEnabled(false);
+        if (getArguments() != null) {
+            loadHistoryData(getArguments());
+        }
         buttonConvert.setOnClickListener(v -> {
             String youtubeUrl = editText.getText().toString().trim();
             if (youtubeUrl.isEmpty()) {
@@ -533,6 +535,87 @@ public class HomeFragment extends Fragment {
         setupObservers();
     }
 
+    private void parseAndLoadChords(String savedData) {
+        detectedChords.clear();
+        String[] lines = savedData.split("\n");
+
+        int count = 0;
+        for (String line : lines) {
+            line = line.trim();
+            // Cek apakah baris dimulai dengan kurung siku waktu, contoh: [00:12]
+            if (line.startsWith("[") && line.contains("]")) {
+                try {
+                    // Ambil bagian waktu: "00:12"
+                    int closeBracketIndex = line.indexOf("]");
+                    String timeStr = line.substring(1, closeBracketIndex);
+
+                    // Ambil nama chord: "Cmaj"
+                    String chordName = line.substring(closeBracketIndex + 1).trim();
+
+                    // Parsing waktu menit:detik ke detik total (double)
+                    String[] parts = timeStr.split(":");
+                    if (parts.length == 2) {
+                        int mm = Integer.parseInt(parts[0]);
+                        int ss = Integer.parseInt(parts[1]);
+                        double totalSeconds = (mm * 60) + ss;
+
+                        detectedChords.add(new ChordTimestamp(totalSeconds, chordName));
+                        count++;
+                    }
+                } catch (Exception e) {
+                    // Abaikan baris yang formatnya salah/header judul
+                    Log.w("ParseHistory", "Skipping line: " + line);
+                }
+            }
+        }
+
+        if (count > 0) {
+            tvResultChord.setText("Data Loaded (" + count + " Chords)");
+        } else {
+            tvResultChord.setText("No chord data found inside history text.");
+        }
+    }
+
+    public void loadHistoryData(Bundle bundle) {
+        if (bundle == null) return;
+
+        String audioPath = bundle.getString("audioPath");
+        String title = bundle.getString("songTitle");
+        String savedChordData = bundle.getString("chordData");
+
+        if (audioPath != null) {
+            File audioFile = new File(audioPath);
+            if (audioFile.exists()) {
+                // Update variabel global
+                this.downloadedFilePath = audioPath;
+                this.audioTitle = title;
+
+
+                // Update UI
+                if (tvPlayingTitle != null) tvPlayingTitle.setText(title);
+
+                // Siapkan Player
+                setupAudioPlayer(audioPath);
+
+                // Parsing Data Chord (agar sync jalan)
+                if (savedChordData != null && !savedChordData.isEmpty()) {
+                    parseAndLoadChords(savedChordData); // Fungsi parser yang sudah dibuat sebelumnya
+                    resultTextView.setText("Data dimuat dari History.");
+                } else {
+                    resultTextView.setText("File siap. Silakan Analisis.");
+                }
+
+                // Tampilkan tombol yang sesuai
+                buttonDetectPitch.setVisibility(View.VISIBLE);
+                buttonDetectPitch.setEnabled(true);
+                buttonDownload.setVisibility(View.GONE);
+
+            } else {
+                Toast.makeText(getContext(), "File audio tidak ditemukan (mungkin sudah dihapus)", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
     private void setupObservers() {
         homeViewModel.getIsLoading().observe(getViewLifecycleOwner(),isLoading ->{
             loadingIndicator.setVisibility(isLoading ? View.VISIBLE : View.GONE);
@@ -550,7 +633,7 @@ public class HomeFragment extends Fragment {
 
                     this.downloadLink = jsonObject.get("link").getAsString();
                     this.audioTitle = jsonObject.has("title") ? jsonObject.get("title").getAsString() : "audio";
-                    resultTextView.setText("Audio Siap : "+ this.audioTitle);
+                    resultTextView.setText("Audio Siap : "+this.audioTitle);
                     buttonDownload.setVisibility(View.VISIBLE);
                 }else if ("processing".equalsIgnoreCase(status)){
                     resultTextView.setText("server Sedang Memproses Video. Mohon Tunggu");
@@ -582,7 +665,9 @@ public class HomeFragment extends Fragment {
      */
     private void downloadAudio(String url, String title) {
 
-        String fileName = title.replaceAll("[^a-zA-Z0-9.-]", "_") + ".mp3";
+        String sanitizedTitle = title.replaceAll("[\\\\/:*?\"<>|]", "_");
+
+        String fileName = sanitizedTitle + ".mp3";
 
         DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
         request.setTitle(title);
@@ -787,7 +872,7 @@ public class HomeFragment extends Fragment {
                                 }
 
                                 buttonDetectPitch.setEnabled(true);
-                                resultTextView.setText("Analisis selesai. Total: " + chordCount + " chord.");
+                                resultTextView.setText("Analisis selesai.");
                                 saveToFirestore(audioTitle, downloadedFilePath, fullLog);
                             });
                         }
@@ -958,22 +1043,49 @@ public class HomeFragment extends Fragment {
         String uid = FirebaseAuth.getInstance().getUid();
 
         if (uid != null) {
-            ChordHistory history = new ChordHistory(
-                    title,
-                    path,
-                    resultText,
-                    new Timestamp(new Date())
-            );
+            com.google.firebase.firestore.CollectionReference historyRef =
+                    db.collection("users").document(uid).collection("history");
 
-            // Simpan ke collection: users -> {uid} -> history
-            db.collection("users").document(uid).collection("history")
-                    .add(history)
-                    .addOnSuccessListener(documentReference -> {
-                        Log.d("Firestore", "DocumentSnapshot added with ID: " + documentReference.getId());
-                        // Opsional: Tampilkan toast kecil "Disimpan ke riwayat"
-                    })
-                    .addOnFailureListener(e -> {
-                        Log.w("Firestore", "Error adding document", e);
+            // 1. Cek Apakah judul lagu ini sudah ada?
+            historyRef.whereEqualTo("title", title)
+                    .get()
+                    .addOnCompleteListener(task -> {
+                        if (task.isSuccessful()) {
+                            if (!task.getResult().isEmpty()) {
+                                // KONDISI 1: SUDAH ADA (UPDATE) ===
+                                // Ambil dokumen pertama yang ditemukan
+                                DocumentSnapshot doc = task.getResult().getDocuments().get(0);
+                                String docId = doc.getId();
+
+                                // Update Timestamp (biar jadi paling atas) dan Path file baru
+                                historyRef.document(docId).update(
+                                        "timestamp", new Timestamp(new Date()),
+                                        "result", resultText,
+                                        "filePath", path
+                                ).addOnSuccessListener(aVoid -> {
+                                    Log.d("Firestore", "History updated: " + title);
+                                    if (getActivity() != null) {
+                                        Toast.makeText(getContext(), "History diperbarui", Toast.LENGTH_SHORT).show();
+                                    }
+                                });
+
+                            } else {
+                                // === KONDISI 2: BELUM ADA (BUAT BARU) ===
+                                ChordHistory history = new ChordHistory(
+                                        title,
+                                        path,
+                                        resultText,
+                                        new Timestamp(new Date())
+                                );
+
+                                historyRef.add(history)
+                                        .addOnSuccessListener(documentReference -> {
+                                            Log.d("Firestore", "New history added");
+                                        });
+                            }
+                        } else {
+                            Log.e("Firestore", "Error checking history", task.getException());
+                        }
                     });
         }
     }
