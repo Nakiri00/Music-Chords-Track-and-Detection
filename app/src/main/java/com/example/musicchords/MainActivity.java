@@ -21,6 +21,13 @@ public class MainActivity extends AppCompatActivity {
 
     ActivityMainBinding binding;
 
+    // Deklarasi Fragment sebagai variabel global agar tidak dibuat ulang terus menerus
+    private final Fragment homeFragment = new HomeFragment();
+    private final Fragment historyFragment = new HistoryFragment();
+
+    // Variabel untuk melacak fragment mana yang sedang aktif
+    private Fragment activeFragment = homeFragment;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -34,13 +41,13 @@ public class MainActivity extends AppCompatActivity {
                     .addOnCompleteListener(this, task -> {
                         if (task.isSuccessful()) {
                             Log.d("Auth", "Login sukses");
-                            switchFragment(new HomeFragment()); // Buka Home setelah sukses
+                            setupFragments();// Buka Home setelah sukses
                         } else {
                             Toast.makeText(MainActivity.this, "Gagal Login Database.", Toast.LENGTH_SHORT).show();
                         }
                     });
         } else {
-            switchFragment(new HomeFragment());
+            setupFragments();
         }
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
@@ -52,17 +59,43 @@ public class MainActivity extends AppCompatActivity {
         binding.navMenu.setOnItemSelectedListener(item -> {
             int id = item.getItemId();
             if (id == R.id.home){
-                switchFragment(new HomeFragment());
-            }else {
-                switchFragment(new HistoryFragment());
+                showHideFragment(homeFragment);
+                return true;
+            } else {
+                showHideFragment(historyFragment);
+                return true;
             }
-            return true;
         });
     }
-    private void switchFragment(Fragment fragment){
-        FragmentManager fragmentManager = getSupportFragmentManager();
-        FragmentTransaction fragmentTransaction = fragmentManager.beginTransaction();
-        fragmentTransaction.replace(R.id.main_frame,fragment);
-        fragmentTransaction.commit();
+    // Fungsi awal untuk menambahkan semua fragment ke container tapi sembunyikan yang tidak perlu
+    private void setupFragments() {
+        FragmentManager fm = getSupportFragmentManager();
+        FragmentTransaction ft = fm.beginTransaction();
+
+        // Tambahkan kedua fragment, tapi sembunyikan historyFragment
+        // Gunakan tag agar mudah dicari jika perlu
+        if (!historyFragment.isAdded()) {
+            ft.add(R.id.main_frame, historyFragment, "HISTORY").hide(historyFragment);
+        }
+        if (!homeFragment.isAdded()) {
+            ft.add(R.id.main_frame, homeFragment, "HOME");
+        }
+
+        ft.commit();
+        activeFragment = homeFragment;
+    }
+
+    // Fungsi untuk menyembunyikan fragment aktif dan memunculkan target
+    private void showHideFragment(Fragment targetFragment){
+        if (targetFragment == activeFragment) return;
+
+        FragmentManager fm = getSupportFragmentManager();
+        FragmentTransaction ft = fm.beginTransaction();
+
+        ft.hide(activeFragment); // Sembunyikan yang sekarang
+        ft.show(targetFragment); // Tampilkan yang dituju
+        ft.commit();
+
+        activeFragment = targetFragment; // Update status aktif
     }
 }
