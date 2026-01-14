@@ -524,7 +524,7 @@ public class HomeFragment extends Fragment {
 
         buttonDetectPitch.setOnClickListener(v -> {
             if (downloadedFilePath != null && !downloadedFilePath.isEmpty()) {
-                tvResultChord.setText("Menganalisis progesi akor...");
+                tvResultChord.setText("Analyzing Chords");
                 analyzeChords(downloadedFilePath);
             } else {
                 Toast.makeText(getContext(), "Unduh file audio terlebih dahulu atau tunggu unduhan selesai.", Toast.LENGTH_SHORT).show();
@@ -705,194 +705,169 @@ public class HomeFragment extends Fragment {
         new Thread(() -> {
             try {
                 File audioFile = new File(audioPath);
+                if (!audioFile.exists()) return;
 
-                if (!audioFile.exists()) {
-                    if (getActivity() != null) {
-                        getActivity().runOnUiThread(() ->
-                                Toast.makeText(getContext(), "File tidak ditemukan: " + audioPath, Toast.LENGTH_LONG).show()
-                        );
-                    }
-                    return;
-                }
-
-                // 1. DECODE AUDIO → PCM
+                // 1. Decode Audio
                 AudioData decoded = decodeAudio(audioPath);
-                if (decoded == null) {
-                    if (getActivity() != null) {
-                        getActivity().runOnUiThread(() ->
-                                tvResultChord.setText("Gagal decode audio menggunakan MediaExtractor")
-                        );
-                    }
-                    return;
-                }
+                if (decoded == null) return;
 
-                byte[] pcmData;
-                if (decoded.channels > 1) {
-                    pcmData = convertToMono(decoded.bytes);
-                } else {
-                    pcmData = decoded.bytes;
-                }
-
+                byte[] pcmData = (decoded.channels > 1) ? convertToMono(decoded.bytes) : decoded.bytes;
                 int sampleRate = decoded.sampleRate;
-                int totalBytes = pcmData.length;
-                int bytesPerSample = 2; // 16-bit
-                int totalSamples = totalBytes / bytesPerSample;
-                int durationSeconds = totalSamples / sampleRate;
 
-                Log.d("ChordAnalysis", "PCM size=" + totalBytes + " bytes, samples=" + totalSamples + ", sr=" + sampleRate + ", duration(s)=" + durationSeconds);
-
-                // jika durasi terlalu pendek beri tahu user
-                if (durationSeconds < 3) {
-                    final String warn = "Decoded audio sangat pendek: " + durationSeconds + " detik. Periksa file atau decoder.";
-                    Log.w("ChordAnalysis", warn);
-                    if (getActivity() != null) {
-                        getActivity().runOnUiThread(() -> Toast.makeText(getContext(), warn, Toast.LENGTH_LONG).show());
-                    }
-                }
+                // 2. Setup FFT
+                // Buffer diperbesar ke 8192 untuk resolusi frekuensi rendah yang lebih baik
                 int bufferSize = 8192;
                 int bufferOverlap = 4096;
 
-                TarsosDSPAudioFormat format = new TarsosDSPAudioFormat(
-                        sampleRate,
-                        16,
-                        1,
-                        true,
-                        false
-                );
-
-                UniversalAudioInputStream inputStream =
-                        new UniversalAudioInputStream(new ByteArrayInputStream(pcmData), format);
-
-                AudioDispatcher dispatcher =
-                        new AudioDispatcher(inputStream, bufferSize, bufferOverlap);
+                TarsosDSPAudioFormat format = new TarsosDSPAudioFormat(sampleRate, 16, 1, true, false);
+                UniversalAudioInputStream inputStream = new UniversalAudioInputStream(new ByteArrayInputStream(pcmData), format);
+                AudioDispatcher dispatcher = new AudioDispatcher(inputStream, bufferSize, bufferOverlap);
 
                 final FFT fft = new FFT(bufferSize);
                 final float[] spectrum = new float[bufferSize / 2];
+                final String[] potentialChord = {""};
+                final int[] stableCount = {0};
 
-//                Map<Double, String> detectedChords = new TreeMap<>();
-                List<String> progression = new ArrayList<>();
-                final String[] lastStableChord = {""}; // Chord terakhir yang valid ditampilkan
-                final String[] potentialChord = {""};   // Kandidat chord baru
-                final int[] stableCount = {0};          // Counter seberapa lama kandidat bertahan
-                final int MIN_STABLE_FRAMES = 3;        // Minimal frame berturut-turut agar dianggap valid
+                // Butuh konsistensi minimal 3 frame agar chord tidak "berkedip" terlalu cepat
+                final int MIN_STABLE_FRAMES = 3;
 
                 AudioProcessor chordProcessor = new AudioProcessor() {
                     @Override
                     public boolean process(AudioEvent audioEvent) {
                         float[] audioBuffer = audioEvent.getFloatBuffer();
+
+                        // --- A. SILENCE DETECTION (Deteksi Sunyi) ---
+                        // Hitung RMS (Root Mean Square) untuk kekerasan suara
+                        double rms = 0;
+                        for (float sample : audioBuffer) rms += sample * sample;
+                        rms = Math.sqrt(rms / audioBuffer.length);
+
+                        // Jika volume terlalu pelan (< 0.01), anggap tidak ada chord ("-")
+                        if (rms < 0.01) {
+                            processStableChord(audioEvent.getTimeStamp(), "-", potentialChord, stableCount, MIN_STABLE_FRAMES);
+                            return true;
+                        }
+
+                        // --- B. FFT ANALYSIS ---
                         float[] transformBuffer = new float[audioBuffer.length];
                         System.arraycopy(audioBuffer, 0, transformBuffer, 0, audioBuffer.length);
                         fft.forwardTransform(transformBuffer);
                         fft.modulus(transformBuffer, spectrum);
 
+                        // --- C. PEAK PICKING (Hanya ambil nada Puncak) ---
+                        // Ini KUNCI untuk memperbaiki error "A Major terus menerus".
+                        // Kita buang frekuensi sampah dan hanya ambil nada yang benar-benar menonjol.
+
+                        boolean[] chroma = new boolean[12];
                         float maxAmp = 0;
-                        for (float f : spectrum) {
-                            if (f > maxAmp) maxAmp = f;
-                        }
+                        for(float v : spectrum) maxAmp = Math.max(maxAmp, v);
 
-                        // Turunkan threshold
-                        if (maxAmp > 0.01f) {
-                            boolean[] chroma = new boolean[12];
-                            for (int i = 0; i < spectrum.length; i++) {
-                                double freq = fft.binToHz(i, sampleRate);
-                                // Rentang frekuensi untuk akor biasanya di mid-range
-                                if (freq > 60 && freq < 2000) {
-                                    // Threshold lokal juga bisa disesuaikan
-                                    if (spectrum[i] > maxAmp * 0.1f) {
-                                        int midi = (int) Math.round(
-                                                69 + 12 * Math.log(freq / 440.0) / Math.log(2)
-                                        );
-                                        if (midi > 0) {
-                                            chroma[midi % 12] = true;
-                                        }
+                        // Threshold Dinamis: Nada harus minimal 15% dari suara terkeras saat itu
+                        float dynamicThreshold = maxAmp * 0.15f;
+                        int peaksFound = 0;
+
+                        for (int i = 0; i < spectrum.length; i++) {
+                            double freq = fft.binToHz(i, sampleRate);
+
+                            // FILTER FREKUENSI:
+                            // Abaikan di bawah 75Hz (untuk membuang dengung listrik/bass boomy)
+                            // Abaikan di atas 2000Hz (noise desis)
+                            if (freq < 75 || freq > 2000) continue;
+
+                            if (spectrum[i] > dynamicThreshold) {
+                                // Cek apakah ini Puncak Lokal (lebih tinggi dari tetangga kiri/kanannya)
+                                if (i > 0 && i < spectrum.length - 1 &&
+                                        spectrum[i] > spectrum[i-1] && spectrum[i] > spectrum[i+1]) {
+
+                                    // Konversi Frekuensi ke Nada (MIDI Note)
+                                    int midi = (int) Math.round(69 + 12 * Math.log(freq / 440.0) / Math.log(2));
+                                    if (midi > 0) {
+                                        chroma[midi % 12] = true; // Simpan nada (C, C#, D, dst)
+                                        peaksFound++;
                                     }
                                 }
                             }
-
-                            String currentChord = ChordTemplates.findBestMatchingChord(chroma);
-                            double t = audioEvent.getTimeStamp();
-
-                            if (!"N/A".equals(currentChord)) {
-                                // LOGIKA SMOOTHING
-                                if (currentChord.equals(potentialChord[0])) {
-                                    stableCount[0]++;
-                                } else {
-                                    // Reset jika chord berubah lagi (tidak stabil)
-                                    potentialChord[0] = currentChord;
-                                    stableCount[0] = 1;
-                                }
-
-                                // Jika chord sudah stabil selama X frame, dan BEDA dari yang terakhir ditampilkan
-                                if (stableCount[0] >= MIN_STABLE_FRAMES) {
-                                    if (!currentChord.equals(lastStableChord[0])) {
-                                        synchronized (detectedChords) {
-                                            detectedChords.add(new ChordTimestamp(t, currentChord));
-                                        }
-                                        lastStableChord[0] = currentChord;
-                                        Log.d("ChordFinal", "Ganti ke: " + currentChord + " di detik " + t);
-                                    }
-                                }
-                            }
-                            return true;
                         }
+
+                        // Tentukan Chord
+                        String currentChord = "-";
+                        // Hanya tebak chord jika minimal ada 2 nada kuat (misal: Root + Third)
+                        if (peaksFound >= 2) {
+                            String match = ChordTemplates.findBestMatchingChord(chroma);
+                            if (!"N/A".equals(match)) currentChord = match;
+                        }
+
+                        // Proses kestabilan chord sebelum disimpan
+                        processStableChord(audioEvent.getTimeStamp(), currentChord, potentialChord, stableCount, MIN_STABLE_FRAMES);
                         return true;
                     }
 
                     @Override
                     public void processingFinished() {
-                        StringBuilder sb = new StringBuilder();
-                        String title = (audioTitle != null && !audioTitle.isEmpty())
-                                ? audioTitle : "Audio";
-
-                        sb.append(title).append("\n");
-
-                        if (detectedChords.isEmpty()) {
-                            sb.append("Tidak ada chord yang terdeteksi.\n");
-                        } else {
-                            for (ChordTimestamp item : detectedChords) {
-                                int seconds = (int) item.timeSeconds;
-                                String time = String.format("%02d:%02d", seconds / 60, seconds % 60);
-                                sb.append("[").append(time).append("] ")
-                                        .append(item.chordName).append("\n");
-                            }
-                        }
-
-                        String fullLog = sb.toString();
-
-                        // Cek jumlah chord
-                        int chordCount = detectedChords.size();
-
-                        if (getActivity() != null) {
-                            getActivity().runOnUiThread(() -> {
-                                // TAMPILKAN JUMLAH CHORD UNTUK DEBUG
-                                if (chordCount > 0) {
-                                    tvResultChord.setText("Ready (" + chordCount + " Chords)");
-                                } else {
-                                    tvResultChord.setText("No Chords Found");
-                                }
-
-                                buttonDetectPitch.setEnabled(true);
-                                resultTextView.setText("Analisis selesai.");
-                                saveToFirestore(audioTitle, downloadedFilePath, fullLog);
-                            });
-                        }
-
+                        finalizeResults();
                     }
                 };
 
                 dispatcher.addAudioProcessor(chordProcessor);
                 dispatcher.run();
 
-
             } catch (Exception e) {
-                Log.e("ChordAnalysis", "Error analisis", e);
-                if (getActivity() != null) {
-                    getActivity().runOnUiThread(() ->
-                            tvResultChord.setText("Error analisis: " + e.getMessage())
-                    );
-                }
+                e.printStackTrace();
             }
         }).start();
+    }
+
+    // Fungsi Helper untuk logika stabilisasi (menghindari duplikasi kode)
+    private void processStableChord(double time, String currentChord, String[] potential, int[] count, int minFrames) {
+        if (currentChord.equals(potential[0])) {
+            count[0]++;
+        } else {
+            // Jika chord berubah, reset counter
+            potential[0] = currentChord;
+            count[0] = 1;
+        }
+
+        // Jika chord konsisten selama sekian frame, baru kita anggap valid
+        if (count[0] >= minFrames) {
+            synchronized (detectedChords) {
+                // Opsional: Hanya simpan jika BEDA dengan chord yang baru saja disimpan
+                // (Agar list tidak penuh dengan chord yang sama berulang-ulang)
+                if (detectedChords.isEmpty() ||
+                        !detectedChords.get(detectedChords.size() - 1).chordName.equals(currentChord)) {
+                    detectedChords.add(new ChordTimestamp(time, currentChord));
+                }
+            }
+        }
+    }
+
+    // Fungsi Helper untuk update UI terakhir
+    private void finalizeResults() {
+        if (getActivity() != null) {
+            getActivity().runOnUiThread(() -> {
+                StringBuilder sb = new StringBuilder();
+                sb.append(audioTitle != null ? audioTitle : "Audio").append("\n");
+
+                for (ChordTimestamp item : detectedChords) {
+                    int mm = (int) (item.timeSeconds / 60);
+                    int ss = (int) (item.timeSeconds % 60);
+                    // Format [01:23] NamaChord
+                    sb.append(String.format(java.util.Locale.US, "[%02d:%02d] %s\n", mm, ss, item.chordName));
+                }
+
+                if (detectedChords.isEmpty()) {
+                    tvResultChord.setText("Tidak ada chord terdeteksi.");
+                    buttonDetectPitch.setEnabled(true);
+                } else {
+                    tvResultChord.setText("Analisis Selesai");
+                    buttonDetectPitch.setEnabled(false);
+                }
+
+                resultTextView.setText("Analisis selesai.");
+
+                // Simpan log lengkap ke Firestore
+                saveToFirestore(audioTitle, downloadedFilePath, sb.toString());
+            });
+        }
     }
 
 

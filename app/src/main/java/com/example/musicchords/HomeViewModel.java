@@ -92,6 +92,10 @@ public class HomeViewModel extends ViewModel{
         return "";
     }
 
+    public void clearErrorMessage() {
+        errorMessage.setValue(null);
+    }
+
 //    public void fetchDataFromApi(){
 //        isLoading.setValue(true);
 //        OkHttpClient client = new OkHttpClient();

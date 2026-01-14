@@ -24,6 +24,15 @@ public class ChordTemplates {
             minor[(i + 3) % 12] = true;
             minor[(i + 7) % 12] = true;
             chordTemplates.put(NOTES[i] + " Minor", minor);
+
+            // Contoh logika (konsep):
+            // Major 7th = Root + 4 + 7 + 11 semitone
+//            boolean[] maj7 = new boolean[12];
+//            maj7[i % 12] = true;
+//            maj7[(i + 4) % 12] = true;
+//            maj7[(i + 7) % 12] = true;
+//            maj7[(i + 11) % 12] = true;
+//            chordTemplates.put(NOTES[i] + "maj7", maj7);
         }
     }
 
