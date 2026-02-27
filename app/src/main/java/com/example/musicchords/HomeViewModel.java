@@ -50,7 +50,7 @@ public class HomeViewModel extends ViewModel{
         Request request = new Request.Builder()
                 .url("https://youtube-mp36.p.rapidapi.com/dl?id=" + videoId)
                 .get()
-                .addHeader("x-rapidapi-key", "a2a9510207msheeca3f728ede5afp1b5184jsn7d296cce0748")
+                .addHeader("x-rapidapi-key", "API KEY")
                 .addHeader("x-rapidapi-host", "youtube-mp36.p.rapidapi.com")
                 .build();
 

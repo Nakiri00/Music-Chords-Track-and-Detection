@@ -24,6 +24,7 @@ public class MainActivity extends AppCompatActivity {
     // Deklarasi Fragment sebagai variabel global agar tidak dibuat ulang terus menerus
     private final Fragment homeFragment = new HomeFragment();
     private final Fragment historyFragment = new HistoryFragment();
+    private final Fragment libraryFragment = new LibraryFragment();
 
     // Variabel untuk melacak fragment mana yang sedang aktif
     private Fragment activeFragment = homeFragment;
@@ -61,10 +62,15 @@ public class MainActivity extends AppCompatActivity {
             if (id == R.id.home){
                 showHideFragment(homeFragment);
                 return true;
-            } else {
+            } else if(id == R.id.library){
+                showHideFragment(libraryFragment);
+                return true;
+            } else if(id == R.id.history){
                 showHideFragment(historyFragment);
                 return true;
             }
+            return false;
+
         });
     }
     // Fungsi awal untuk menambahkan semua fragment ke container tapi sembunyikan yang tidak perlu
@@ -72,13 +78,14 @@ public class MainActivity extends AppCompatActivity {
         FragmentManager fm = getSupportFragmentManager();
         FragmentTransaction ft = fm.beginTransaction();
 
-        // Tambahkan kedua fragment, tapi sembunyikan historyFragment
-        // Gunakan tag agar mudah dicari jika perlu
         if (!historyFragment.isAdded()) {
             ft.add(R.id.main_frame, historyFragment, "HISTORY").hide(historyFragment);
         }
         if (!homeFragment.isAdded()) {
             ft.add(R.id.main_frame, homeFragment, "HOME");
+        }
+        if (!libraryFragment.isAdded()) {
+            ft.add(R.id.main_frame, libraryFragment, "LIBRARY").hide(libraryFragment);
         }
 
         ft.commit();
@@ -100,10 +107,8 @@ public class MainActivity extends AppCompatActivity {
     }
 
     public void playSongFromHistory(Bundle bundle) {
-        // 1. Pindah tab ke Home (ini otomatis memanggil showHideFragment lewat listener)
         binding.navMenu.setSelectedItemId(R.id.home);
 
-        // 2. Kirim data ke HomeFragment yang sudah ada (tanpa membuat baru)
         if (homeFragment instanceof HomeFragment) {
             ((HomeFragment) homeFragment).loadHistoryData(bundle);
         }
