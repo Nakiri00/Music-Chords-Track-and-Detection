@@ -5,6 +5,7 @@ import androidx.annotation.NonNull;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
+import com.example.musicchords.BuildConfig;
 
 import java.io.IOException;
 import java.util.regex.Matcher;
@@ -50,7 +51,7 @@ public class HomeViewModel extends ViewModel{
         Request request = new Request.Builder()
                 .url("https://youtube-mp36.p.rapidapi.com/dl?id=" + videoId)
                 .get()
-                .addHeader("x-rapidapi-key", "API KEY")
+                .addHeader("x-rapidapi-key", BuildConfig.API_KEY)
                 .addHeader("x-rapidapi-host", "youtube-mp36.p.rapidapi.com")
                 .build();
 

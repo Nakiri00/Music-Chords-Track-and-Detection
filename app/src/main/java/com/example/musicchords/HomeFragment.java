@@ -369,8 +369,6 @@ public class HomeFragment extends Fragment {
 
                         if (uriString != null) {
                             Uri fileUri = Uri.parse(uriString);
-
-                            // Kita gunakan logika yang sama dengan "Pilih File Manual"
                             // untuk menyalinnya ke cache agar bisa diakses path-nya
                             processSelectedFile(fileUri, audioTitle);
 

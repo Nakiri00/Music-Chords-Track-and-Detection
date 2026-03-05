@@ -5,7 +5,7 @@ import java.util.Map;
 
 public class ChordTemplates {
     // Array 12 nada
-    public static final String[] NOTES = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+    public static final String[] NOTES = {"C","C#","D","Eb","E","F","F#","G","Ab","A","Bb","B"};
     private static final Map<String, boolean[]> chordTemplates = new HashMap<>();
 
     // Inisialisasi templat akor dasar (Mayor dan Minor)
@@ -25,14 +25,6 @@ public class ChordTemplates {
             minor[(i + 7) % 12] = true;
             chordTemplates.put(NOTES[i] + " Minor", minor);
 
-            // Contoh logika (konsep):
-            // Major 7th = Root + 4 + 7 + 11 semitone
-//            boolean[] maj7 = new boolean[12];
-//            maj7[i % 12] = true;
-//            maj7[(i + 4) % 12] = true;
-//            maj7[(i + 7) % 12] = true;
-//            maj7[(i + 11) % 12] = true;
-//            chordTemplates.put(NOTES[i] + "maj7", maj7);
         }
     }
 

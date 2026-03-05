@@ -79,7 +79,7 @@ public class LibraryFragment extends Fragment {
 
             if (guitarData != null && guitarData.chords != null) {
                 // Kita ambil urutan nada dasar yang umum (C sampai B)
-                String[] targetKeys = {"C", "D", "E", "F", "G", "A", "B"};
+                String[] targetKeys = {"C","C#","D","Eb","E","F","F#","G","Ab","A","Bb","B"};
 
                 for (String key : targetKeys) {
                     List<ChordInfo> chordListInfo = guitarData.chords.get(key);
@@ -89,7 +89,7 @@ public class LibraryFragment extends Fragment {
                             if (info.suffix.equals("major") || info.suffix.equals("minor")) {
 
                                 // Gabungkan nama kunci (contoh: "C" + " " + "major" = "C major")
-                                String namaAkor = info.key + " " + info.suffix;
+                                String chordName = info.key + " " + info.suffix;
 
                                 // Ambil posisi senar pertama yang paling mudah dimainkan
                                 List<Integer> frets = info.positions.get(0).frets;
@@ -104,12 +104,23 @@ public class LibraryFragment extends Fragment {
                                     }
                                 }
 
+                                String keyClean = info.key.replace("#", "sharp").toLowerCase();
+                                String suffixClean = info.suffix.toLowerCase();
+
+                                String audioFileName = "chord_" + keyClean + "_" + suffixClean;
+
+                                int audioResId = getContext().getResources().getIdentifier(
+                                        audioFileName,
+                                        "raw",
+                                        getContext().getPackageName()
+                                );
+
                                 // Masukkan ke dalam daftar tampilan
                                 chordList.add(new Chord(
-                                        namaAkor,
+                                        chordName,
                                         fretStr.toString().trim(),
                                         R.drawable.ic_launcher_background, // Ikon bawaan sementara
-                                        0 // Audio kosong sementara
+                                        audioResId// Audio kosong sementara
                                 ));
                             }
                         }

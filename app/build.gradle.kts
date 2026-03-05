@@ -1,7 +1,15 @@
+import java.util.Properties
+
 plugins {
 //    id("com.android.application")
     alias(libs.plugins.android.application)
     id("com.google.gms.google-services")
+}
+
+val properties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    properties.load(localPropertiesFile.inputStream())
 }
 
 android {
@@ -16,6 +24,8 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        val apiKey = properties.getProperty("API_KEY") ?: "\"\""
+        buildConfigField("String", "API_KEY", apiKey)
     }
 
     buildTypes {
@@ -30,6 +40,7 @@ android {
 
     buildFeatures {
         viewBinding = true
+        buildConfig = true
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
