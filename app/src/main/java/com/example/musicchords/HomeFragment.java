@@ -1,23 +1,17 @@
 package com.example.musicchords;
 
+import android.app.DownloadManager;
 import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.database.Cursor;
+import android.media.MediaCodec;
+import android.media.MediaExtractor;
+import android.media.MediaFormat;
 import android.media.MediaPlayer;
-import android.os.Bundle;
-
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-import androidx.core.content.ContextCompat;
-import androidx.fragment.app.Fragment;
-import androidx.lifecycle.ViewModelProvider;
-
-import android.app.DownloadManager;
-import android.content.Context;
 import android.net.Uri;
+import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
@@ -34,7 +28,19 @@ import android.widget.ProgressBar;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
-
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
+import androidx.fragment.app.Fragment;
+import androidx.lifecycle.ViewModelProvider;
+import be.tarsos.dsp.AudioDispatcher;
+import be.tarsos.dsp.AudioEvent;
+import be.tarsos.dsp.AudioProcessor;
+import be.tarsos.dsp.io.TarsosDSPAudioFormat;
+import be.tarsos.dsp.io.UniversalAudioInputStream;
+import be.tarsos.dsp.util.fft.FFT;
 import com.google.firebase.Timestamp;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.firestore.DocumentSnapshot;
@@ -42,27 +48,16 @@ import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
-
-import be.tarsos.dsp.AudioDispatcher;
-import be.tarsos.dsp.AudioEvent;
-import be.tarsos.dsp.AudioProcessor;
-import be.tarsos.dsp.util.fft.FFT;
-
-import android.media.MediaCodec;
-import android.media.MediaExtractor;
-import android.media.MediaFormat;
-import be.tarsos.dsp.io.UniversalAudioInputStream;
-import be.tarsos.dsp.io.TarsosDSPAudioFormat;
-
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
-import java.io.ByteArrayOutputStream;
-
-import java.io.File;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -116,7 +111,6 @@ public class HomeFragment extends Fragment {
         // Required empty public constructor
     }
 
-
     /**
      * Use this factory method to create a new instance of
      * this fragment using the provided parameters.
@@ -135,14 +129,15 @@ public class HomeFragment extends Fragment {
         return fragment;
     }
 
-    private final ActivityResultLauncher<String> pickAudioLauncher = registerForActivityResult(
+    private final ActivityResultLauncher<String> pickAudioLauncher =
+        registerForActivityResult(
             new ActivityResultContracts.GetContent(),
             uri -> {
                 if (uri != null) {
-                    processSelectedFile(uri, audioTitle);
+                    processSelectedFile(uri, null);
                 }
             }
-    );
+        );
 
     private void startChordSync() {
         chordRunnable = new Runnable() {
@@ -150,7 +145,8 @@ public class HomeFragment extends Fragment {
             public void run() {
                 if (mediaPlayer != null && mediaPlayer.isPlaying()) {
                     // 1. Dapatkan posisi lagu saat ini (ubah ke detik)
-                    double currentSeconds = mediaPlayer.getCurrentPosition() / 1000.0;
+                    double currentSeconds =
+                        mediaPlayer.getCurrentPosition() / 1000.0;
 
                     // 2. Cari chord yang cocok dengan waktu ini
                     String chordToShow = getCurrentChord(currentSeconds);
@@ -185,6 +181,7 @@ public class HomeFragment extends Fragment {
     private void stopChordSync() {
         chordHandler.removeCallbacks(chordRunnable);
     }
+
     private void playAudio() {
         if (mediaPlayer != null) {
             mediaPlayer.start();
@@ -224,8 +221,16 @@ public class HomeFragment extends Fragment {
             int current = mediaPlayer.getCurrentPosition() / 1000;
             int total = mediaPlayer.getDuration() / 1000;
 
-            String currentStr = String.format("%02d:%02d", current / 60, current % 60);
-            String totalStr = String.format("%02d:%02d", total / 60, total % 60);
+            String currentStr = String.format(
+                "%02d:%02d",
+                current / 60,
+                current % 60
+            );
+            String totalStr = String.format(
+                "%02d:%02d",
+                total / 60,
+                total % 60
+            );
 
             tvDuration.setText(currentStr + " / " + totalStr);
         }
@@ -273,10 +278,13 @@ public class HomeFragment extends Fragment {
                 seekBarAudio.setProgress(0);
                 handler.removeCallbacks(updateSeekBarRunnable);
             });
-
         } catch (Exception e) {
             Log.e("AudioPlayer", "Error preparing audio", e);
-            Toast.makeText(getContext(), "Gagal memuat audio", Toast.LENGTH_SHORT).show();
+            Toast.makeText(
+                getContext(),
+                "Gagal memuat audio",
+                Toast.LENGTH_SHORT
+            ).show();
         }
     }
 
@@ -284,13 +292,19 @@ public class HomeFragment extends Fragment {
         try {
             String fileName = getFileNameFromUri(uri);
 
-            if (fileName == null) fileName = "audio_" + System.currentTimeMillis() + ".mp3";
+            if (fileName == null) fileName =
+                "audio_" + System.currentTimeMillis() + ".mp3";
             String safeFileName = fileName.replaceAll("[\\\\/:*?\"<>|]", "_");
             String finalFileName = "history_" + safeFileName;
 
-            File uniqueFile = new File(requireContext().getFilesDir(), finalFileName);
+            File uniqueFile = new File(
+                requireContext().getFilesDir(),
+                finalFileName
+            );
 
-            InputStream inputStream = requireContext().getContentResolver().openInputStream(uri);
+            InputStream inputStream = requireContext()
+                .getContentResolver()
+                .openInputStream(uri);
             FileOutputStream outputStream = new FileOutputStream(uniqueFile);
 
             byte[] buffer = new byte[1024];
@@ -309,7 +323,12 @@ public class HomeFragment extends Fragment {
                 this.audioTitle = fileName;
             }
 
-            resultTextView.setText("File Siap: " + this.audioTitle); // Update info UI
+            // Reset chord state from any previously loaded file
+            stopChordSync();
+            detectedChords.clear();
+            tvResultChord.setText("-");
+
+            resultTextView.setText("File Siap: " + this.audioTitle);
 
             buttonDetectPitch.setVisibility(View.VISIBLE);
             buttonDetectPitch.setEnabled(true);
@@ -317,11 +336,18 @@ public class HomeFragment extends Fragment {
 
             setupAudioPlayer(downloadedFilePath);
 
-            Toast.makeText(getContext(), "File dimuat: " + audioTitle, Toast.LENGTH_SHORT).show();
-
+            Toast.makeText(
+                getContext(),
+                "File dimuat: " + audioTitle,
+                Toast.LENGTH_SHORT
+            ).show();
         } catch (Exception e) {
             Log.e("PickFile", "Error processing file", e);
-            Toast.makeText(getContext(), "Gagal memproses file: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            Toast.makeText(
+                getContext(),
+                "Gagal memproses file: " + e.getMessage(),
+                Toast.LENGTH_LONG
+            ).show();
         }
     }
 
@@ -329,10 +355,16 @@ public class HomeFragment extends Fragment {
     private String getFileNameFromUri(Uri uri) {
         String result = null;
         if (uri.getScheme().equals("content")) {
-            try (Cursor cursor = requireContext().getContentResolver().query(uri, null, null, null, null)) {
+            try (
+                Cursor cursor = requireContext()
+                    .getContentResolver()
+                    .query(uri, null, null, null, null)
+            ) {
                 if (cursor != null && cursor.moveToFirst()) {
-                    int index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
-                    if(index != -1) result = cursor.getString(index);
+                    int index = cursor.getColumnIndex(
+                        OpenableColumns.DISPLAY_NAME
+                    );
+                    if (index != -1) result = cursor.getString(index);
                 }
             }
         }
@@ -346,44 +378,60 @@ public class HomeFragment extends Fragment {
         return result;
     }
 
-    private final BroadcastReceiver onDownloadComplete = new BroadcastReceiver() {
-        @Override
-        public void onReceive(Context context, Intent intent) {
-            long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+    private final BroadcastReceiver onDownloadComplete =
+        new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                long id = intent.getLongExtra(
+                    DownloadManager.EXTRA_DOWNLOAD_ID,
+                    -1
+                );
 
-            // Pastikan ID download cocok
-            if (downloadID == id) {
-                DownloadManager.Query query = new DownloadManager.Query();
-                query.setFilterById(id);
+                // Pastikan ID download cocok
+                if (downloadID == id) {
+                    DownloadManager.Query query = new DownloadManager.Query();
+                    query.setFilterById(id);
 
-                DownloadManager dm = (DownloadManager) context.getSystemService(Context.DOWNLOAD_SERVICE);
-                Cursor cursor = dm.query(query);
+                    DownloadManager dm =
+                        (DownloadManager) context.getSystemService(
+                            Context.DOWNLOAD_SERVICE
+                        );
+                    Cursor cursor = dm.query(query);
 
-                if (cursor != null && cursor.moveToFirst()) {
-                    int statusIndex = cursor.getColumnIndex(DownloadManager.COLUMN_STATUS);
-                    int status = cursor.getInt(statusIndex);
-                    if (status == DownloadManager.STATUS_SUCCESSFUL) {
-                        // Ambil URI file langsung dari DownloadManager
-                        int uriIndex = cursor.getColumnIndex(DownloadManager.COLUMN_LOCAL_URI);
-                        String uriString = cursor.getString(uriIndex);
+                    if (cursor != null && cursor.moveToFirst()) {
+                        int statusIndex = cursor.getColumnIndex(
+                            DownloadManager.COLUMN_STATUS
+                        );
+                        int status = cursor.getInt(statusIndex);
+                        if (status == DownloadManager.STATUS_SUCCESSFUL) {
+                            // Ambil URI file langsung dari DownloadManager
+                            int uriIndex = cursor.getColumnIndex(
+                                DownloadManager.COLUMN_LOCAL_URI
+                            );
+                            String uriString = cursor.getString(uriIndex);
 
-                        if (uriString != null) {
-                            Uri fileUri = Uri.parse(uriString);
-                            // untuk menyalinnya ke cache agar bisa diakses path-nya
-                            processSelectedFile(fileUri, audioTitle);
+                            if (uriString != null) {
+                                Uri fileUri = Uri.parse(uriString);
+                                // untuk menyalinnya ke cache agar bisa diakses path-nya
+                                processSelectedFile(fileUri, audioTitle);
 
-                            // Update UI Text (Override teks yang diset processSelectedFile jika perlu)
-                            resultTextView.setText("Unduhan Selesai. Siap Analisis.");
+                                // Update UI Text (Override teks yang diset processSelectedFile jika perlu)
+                                resultTextView.setText(
+                                    "Unduhan Selesai. Siap Analisis."
+                                );
+                            }
+                        } else {
+                            Toast.makeText(
+                                context,
+                                "Unduhan Gagal / Belum Selesai",
+                                Toast.LENGTH_SHORT
+                            ).show();
                         }
+                        cursor.close();
                     }
-                    else {
-                        Toast.makeText(context, "Unduhan Gagal / Belum Selesai", Toast.LENGTH_SHORT).show();
-                    }
-                    cursor.close();
                 }
             }
-        }
-    };
+        };
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -397,18 +445,21 @@ public class HomeFragment extends Fragment {
         if (!receiverRegistered) {
             int flags = ContextCompat.RECEIVER_EXPORTED;
             ContextCompat.registerReceiver(
-                    requireContext(),
-                    onDownloadComplete,
-                    new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
-                    flags
+                requireContext(),
+                onDownloadComplete,
+                new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
+                flags
             );
             receiverRegistered = true;
         }
     }
 
     @Override
-    public View onCreateView(LayoutInflater inflater, ViewGroup container,
-                             Bundle savedInstanceState) {
+    public View onCreateView(
+        LayoutInflater inflater,
+        ViewGroup container,
+        Bundle savedInstanceState
+    ) {
         // Inflate the layout for this fragment
         return inflater.inflate(R.layout.fragment_home, container, false);
     }
@@ -424,7 +475,10 @@ public class HomeFragment extends Fragment {
     }
 
     @Override
-    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
+    public void onViewCreated(
+        @NonNull View view,
+        @Nullable Bundle savedInstanceState
+    ) {
         super.onViewCreated(view, savedInstanceState);
         buttonConvert = view.findViewById(R.id.button_convert);
         resultTextView = view.findViewById(R.id.textview_result);
@@ -452,7 +506,11 @@ public class HomeFragment extends Fragment {
         buttonConvert.setOnClickListener(v -> {
             String youtubeUrl = editText.getText().toString().trim();
             if (youtubeUrl.isEmpty()) {
-                Toast.makeText(getContext(), "Silakan masukkan URL", Toast.LENGTH_SHORT).show();
+                Toast.makeText(
+                    getContext(),
+                    "Silakan masukkan URL",
+                    Toast.LENGTH_SHORT
+                ).show();
                 return;
             }
 
@@ -472,32 +530,44 @@ public class HomeFragment extends Fragment {
         // Listener Tombol
         btnPlay.setOnClickListener(v -> playAudio());
         btnPause.setOnClickListener(v -> pauseAudio());
-        seekBarAudio.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override
-            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                if (fromUser && mediaPlayer != null) {
-                    mediaPlayer.seekTo(progress);
-                    updateDurationText();
+        seekBarAudio.setOnSeekBarChangeListener(
+            new SeekBar.OnSeekBarChangeListener() {
+                @Override
+                public void onProgressChanged(
+                    SeekBar seekBar,
+                    int progress,
+                    boolean fromUser
+                ) {
+                    if (fromUser && mediaPlayer != null) {
+                        mediaPlayer.seekTo(progress);
+                        updateDurationText();
+                    }
+                }
+
+                @Override
+                public void onStartTrackingTouch(SeekBar seekBar) {
+                    if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+                        handler.removeCallbacks(updateSeekBarRunnable); // Stop update saat digeser user
+                    }
+                }
+
+                @Override
+                public void onStopTrackingTouch(SeekBar seekBar) {
+                    if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+                        handler.post(updateSeekBarRunnable); // Resume update setelah dilepas
+                    }
                 }
             }
-            @Override
-            public void onStartTrackingTouch(SeekBar seekBar) {
-                if (mediaPlayer != null && mediaPlayer.isPlaying()) {
-                    handler.removeCallbacks(updateSeekBarRunnable); // Stop update saat digeser user
-                }
-            }
-            @Override
-            public void onStopTrackingTouch(SeekBar seekBar) {
-                if (mediaPlayer != null && mediaPlayer.isPlaying()) {
-                    handler.post(updateSeekBarRunnable); // Resume update setelah dilepas
-                }
-            }
-        });
+        );
         // Setup listener untuk tombol
         buttonConvert.setOnClickListener(v -> {
             String youtubeUrl = editText.getText().toString().trim();
             if (youtubeUrl.isEmpty()) {
-                Toast.makeText(getContext(), "Silakan masukkan URL", Toast.LENGTH_SHORT).show();
+                Toast.makeText(
+                    getContext(),
+                    "Silakan masukkan URL",
+                    Toast.LENGTH_SHORT
+                ).show();
                 return;
             }
             // Reset UI sebelum request baru
@@ -513,10 +583,18 @@ public class HomeFragment extends Fragment {
 
         buttonDownload.setOnClickListener(v -> {
             if (!downloadLink.isEmpty() && !audioTitle.isEmpty()) {
-                Toast.makeText(getContext(), "Mulai mengunduh: " + audioTitle, Toast.LENGTH_SHORT).show();
+                Toast.makeText(
+                    getContext(),
+                    "Mulai mengunduh: " + audioTitle,
+                    Toast.LENGTH_SHORT
+                ).show();
                 downloadAudio(downloadLink, audioTitle);
             } else {
-                Toast.makeText(getContext(), "Link download tidak valid.", Toast.LENGTH_SHORT).show();
+                Toast.makeText(
+                    getContext(),
+                    "Link download tidak valid.",
+                    Toast.LENGTH_SHORT
+                ).show();
             }
         });
 
@@ -525,7 +603,11 @@ public class HomeFragment extends Fragment {
                 tvResultChord.setText("Analyzing Chords");
                 analyzeChords(downloadedFilePath);
             } else {
-                Toast.makeText(getContext(), "Unduh file audio terlebih dahulu atau tunggu unduhan selesai.", Toast.LENGTH_SHORT).show();
+                Toast.makeText(
+                    getContext(),
+                    "Unduh file audio terlebih dahulu atau tunggu unduhan selesai.",
+                    Toast.LENGTH_SHORT
+                ).show();
             }
         });
 
@@ -548,7 +630,9 @@ public class HomeFragment extends Fragment {
                     String timeStr = line.substring(1, closeBracketIndex);
 
                     // Ambil nama chord: "Cmaj"
-                    String chordName = line.substring(closeBracketIndex + 1).trim();
+                    String chordName = line
+                        .substring(closeBracketIndex + 1)
+                        .trim();
 
                     // Parsing waktu menit:detik ke detik total (double)
                     String[] parts = timeStr.split(":");
@@ -557,7 +641,9 @@ public class HomeFragment extends Fragment {
                         int ss = Integer.parseInt(parts[1]);
                         double totalSeconds = (mm * 60) + ss;
 
-                        detectedChords.add(new ChordTimestamp(totalSeconds, chordName));
+                        detectedChords.add(
+                            new ChordTimestamp(totalSeconds, chordName)
+                        );
                         count++;
                     }
                 } catch (Exception e) {
@@ -588,7 +674,6 @@ public class HomeFragment extends Fragment {
                 this.downloadedFilePath = audioPath;
                 this.audioTitle = title;
 
-
                 // Update UI
                 if (tvPlayingTitle != null) tvPlayingTitle.setText(title);
 
@@ -607,53 +692,86 @@ public class HomeFragment extends Fragment {
                 buttonDetectPitch.setVisibility(View.VISIBLE);
                 buttonDetectPitch.setEnabled(true);
                 buttonDownload.setVisibility(View.GONE);
-
             } else {
-                Toast.makeText(getContext(), "File audio tidak ditemukan (mungkin sudah dihapus)", Toast.LENGTH_SHORT).show();
+                Toast.makeText(
+                    getContext(),
+                    "File audio tidak ditemukan (mungkin sudah dihapus)",
+                    Toast.LENGTH_SHORT
+                ).show();
             }
         }
     }
 
     private void setupObservers() {
-        homeViewModel.getIsLoading().observe(getViewLifecycleOwner(),isLoading ->{
-            loadingIndicator.setVisibility(isLoading ? View.VISIBLE : View.GONE);
-            buttonConvert.setEnabled(!isLoading);
-        });
+        homeViewModel
+            .getIsLoading()
+            .observe(getViewLifecycleOwner(), isLoading -> {
+                loadingIndicator.setVisibility(
+                    isLoading ? View.VISIBLE : View.GONE
+                );
+                buttonConvert.setEnabled(!isLoading);
+            });
 
-        homeViewModel.getApiResponse().observe(getViewLifecycleOwner(),response -> {
-            if (response == null) return;
-            Log.d("HomeFragment", "API Response : "+ response);
-            try{
-                Gson gson = new Gson();
-                JsonObject jsonObject = gson.fromJson(response, JsonObject.class);
-                String status = jsonObject.has("status")? jsonObject.get("status").getAsString() : "error";
-                if("ok".equalsIgnoreCase(status) && jsonObject.has("link")){
-
-                    this.downloadLink = jsonObject.get("link").getAsString();
-                    this.audioTitle = jsonObject.has("title") ? jsonObject.get("title").getAsString() : "audio";
-                    resultTextView.setText("Audio Siap : "+this.audioTitle);
-                    buttonDownload.setVisibility(View.VISIBLE);
-                }else if ("processing".equalsIgnoreCase(status)){
-                    resultTextView.setText("server Sedang Memproses Video. Mohon Tunggu");
-                    buttonDownload.setVisibility(View.GONE);
-                }else{
-                    String message = jsonObject.has("mess") ? jsonObject.get("mess").getAsString() : "Format Respons Tidak Dikenal";
-                    resultTextView.setText("Gagal : "+ message);
+        homeViewModel
+            .getApiResponse()
+            .observe(getViewLifecycleOwner(), response -> {
+                if (response == null) return;
+                Log.d("HomeFragment", "API Response : " + response);
+                try {
+                    Gson gson = new Gson();
+                    JsonObject jsonObject = gson.fromJson(
+                        response,
+                        JsonObject.class
+                    );
+                    String status = jsonObject.has("status")
+                        ? jsonObject.get("status").getAsString()
+                        : "error";
+                    if (
+                        "ok".equalsIgnoreCase(status) && jsonObject.has("link")
+                    ) {
+                        this.downloadLink = jsonObject
+                            .get("link")
+                            .getAsString();
+                        this.audioTitle = jsonObject.has("title")
+                            ? jsonObject.get("title").getAsString()
+                            : "audio";
+                        resultTextView.setText(
+                            "Audio Siap : " + this.audioTitle
+                        );
+                        buttonDownload.setVisibility(View.VISIBLE);
+                    } else if ("processing".equalsIgnoreCase(status)) {
+                        resultTextView.setText(
+                            "server Sedang Memproses Video. Mohon Tunggu"
+                        );
+                        buttonDownload.setVisibility(View.GONE);
+                    } else {
+                        String message = jsonObject.has("mess")
+                            ? jsonObject.get("mess").getAsString()
+                            : "Format Respons Tidak Dikenal";
+                        resultTextView.setText("Gagal : " + message);
+                        buttonDownload.setVisibility(View.GONE);
+                    }
+                } catch (JsonSyntaxException e) {
+                    Log.e("HomeFragment", "JSON Parsing Error ", e);
+                    resultTextView.setText(
+                        "Terjadi kesalahan saat memproses respons server."
+                    );
                     buttonDownload.setVisibility(View.GONE);
                 }
-            }catch (JsonSyntaxException e){
-                Log.e("HomeFragment", "JSON Parsing Error ",e);
-                resultTextView.setText("Terjadi kesalahan saat memproses respons server.");
-                buttonDownload.setVisibility(View.GONE);
-            }
-        });
-        homeViewModel.getErrorMessage().observe(getViewLifecycleOwner(),error ->{
-            if(error != null && !error.isEmpty()){
-                Toast.makeText(getContext(),error,Toast.LENGTH_SHORT).show();
-                resultTextView.setText("Error : " + error);
-                Log.e("HomeFragment","API Error : " + error);
-            }
-        });
+            });
+        homeViewModel
+            .getErrorMessage()
+            .observe(getViewLifecycleOwner(), error -> {
+                if (error != null && !error.isEmpty()) {
+                    Toast.makeText(
+                        getContext(),
+                        error,
+                        Toast.LENGTH_SHORT
+                    ).show();
+                    resultTextView.setText("Error : " + error);
+                    Log.e("HomeFragment", "API Error : " + error);
+                }
+            });
     }
 
     /**
@@ -662,23 +780,29 @@ public class HomeFragment extends Fragment {
      * @param title Judul file yang akan disimpan.
      */
     private void downloadAudio(String url, String title) {
-
         String sanitizedTitle = title.replaceAll("[\\\\/:*?\"<>|]", "_");
 
         String fileName = sanitizedTitle + ".mp3";
 
-        DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+        DownloadManager.Request request = new DownloadManager.Request(
+            Uri.parse(url)
+        );
         request.setTitle(title);
         request.setDescription("Mengunduh Audio MP3");
-        request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+        request.setNotificationVisibility(
+            DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
+        );
 
         // FIX untuk Android 10+
         request.setDestinationInExternalPublicDir(
-                Environment.DIRECTORY_DOWNLOADS,
-                fileName
+            Environment.DIRECTORY_DOWNLOADS,
+            fileName
         );
 
-        DownloadManager dm = (DownloadManager) requireActivity().getSystemService(Context.DOWNLOAD_SERVICE);
+        DownloadManager dm =
+            (DownloadManager) requireActivity().getSystemService(
+                Context.DOWNLOAD_SERVICE
+            );
         downloadID = dm.enqueue(request);
 
         Log.d("Download", "Download dimulai. ID = " + downloadID);
@@ -686,6 +810,7 @@ public class HomeFragment extends Fragment {
 
     // Class helper sederhana untuk menampung data audio + formatnya
     private static class AudioData {
+
         byte[] bytes;
         int sampleRate;
         int channels;
@@ -705,98 +830,219 @@ public class HomeFragment extends Fragment {
                 File audioFile = new File(audioPath);
                 if (!audioFile.exists()) return;
 
-                // 1. Decode Audio
+                // 1. Decode audio to raw PCM
                 AudioData decoded = decodeAudio(audioPath);
                 if (decoded == null) return;
 
-                byte[] pcmData = (decoded.channels > 1) ? convertToMono(decoded.bytes) : decoded.bytes;
+                byte[] pcmData = (decoded.channels > 1)
+                    ? convertToMono(decoded.bytes)
+                    : decoded.bytes;
                 int sampleRate = decoded.sampleRate;
 
-                // 2. Setup FFT
-                // Buffer diperbesar ke 8192 untuk resolusi frekuensi rendah yang lebih baik
+                // 2. FFT setup
+                // bufferSize=8192 → frequency resolution ~5.4 Hz/bin @ 44100 Hz
+                // hop size = 8192 - 4096 = 4096 samples → ~93ms per frame
                 int bufferSize = 8192;
                 int bufferOverlap = 4096;
 
-                TarsosDSPAudioFormat format = new TarsosDSPAudioFormat(sampleRate, 16, 1, true, false);
-                UniversalAudioInputStream inputStream = new UniversalAudioInputStream(new ByteArrayInputStream(pcmData), format);
-                AudioDispatcher dispatcher = new AudioDispatcher(inputStream, bufferSize, bufferOverlap);
+                TarsosDSPAudioFormat format = new TarsosDSPAudioFormat(
+                    sampleRate,
+                    16,
+                    1,
+                    true,
+                    false
+                );
+                UniversalAudioInputStream inputStream =
+                    new UniversalAudioInputStream(
+                        new ByteArrayInputStream(pcmData),
+                        format
+                    );
+                AudioDispatcher dispatcher = new AudioDispatcher(
+                    inputStream,
+                    bufferSize,
+                    bufferOverlap
+                );
 
                 final FFT fft = new FFT(bufferSize);
                 final float[] spectrum = new float[bufferSize / 2];
-                final String[] potentialChord = {""};
-                final int[] stableCount = {0};
 
-                // Butuh konsistensi minimal 3 frame agar chord tidak "berkedip" terlalu cepat
-                final int MIN_STABLE_FRAMES = 3;
+                // 3. Pre-compute Hann window to reduce spectral leakage
+                final float[] hannWindow = new float[bufferSize];
+                for (int i = 0; i < bufferSize; i++) {
+                    hannWindow[i] = (float) (0.5 *
+                        (1.0 -
+                            Math.cos((2.0 * Math.PI * i) / (bufferSize - 1))));
+                }
+
+                // 4. Sliding vote window for stable, onset-accurate chord recording
+                //    5 frames × ~93ms = ~465ms window; majority = 3 out of 5
+                final int VOTE_WINDOW_SIZE = 5;
+                final ArrayDeque<String> chordWindow = new ArrayDeque<>();
+                final ArrayDeque<Double> timeWindow = new ArrayDeque<>();
+                final String[] lastSavedChord = { "" };
 
                 AudioProcessor chordProcessor = new AudioProcessor() {
                     @Override
                     public boolean process(AudioEvent audioEvent) {
                         float[] audioBuffer = audioEvent.getFloatBuffer();
+                        double timestamp = audioEvent.getTimeStamp();
 
-                        // --- A. SILENCE DETECTION (Deteksi Sunyi) ---
-                        // Hitung RMS (Root Mean Square) untuk kekerasan suara
+                        // --- A. SILENCE DETECTION ---
                         double rms = 0;
-                        for (float sample : audioBuffer) rms += sample * sample;
+                        for (float s : audioBuffer) rms += s * s;
                         rms = Math.sqrt(rms / audioBuffer.length);
-
-                        // Jika volume terlalu pelan (< 0.01), anggap tidak ada chord ("-")
-                        if (rms < 0.01) {
-                            processStableChord(audioEvent.getTimeStamp(), "-", potentialChord, stableCount, MIN_STABLE_FRAMES);
+                        if (rms < 0.008) {
+                            updateVoteWindow(
+                                "-",
+                                timestamp,
+                                chordWindow,
+                                timeWindow,
+                                lastSavedChord,
+                                VOTE_WINDOW_SIZE
+                            );
                             return true;
                         }
 
-                        // --- B. FFT ANALYSIS ---
+                        // --- B. APPLY HANN WINDOW (reduces spectral leakage) ---
                         float[] transformBuffer = new float[audioBuffer.length];
-                        System.arraycopy(audioBuffer, 0, transformBuffer, 0, audioBuffer.length);
+                        for (int i = 0; i < audioBuffer.length; i++) {
+                            transformBuffer[i] = audioBuffer[i] * hannWindow[i];
+                        }
+
+                        // --- C. FFT ---
                         fft.forwardTransform(transformBuffer);
                         fft.modulus(transformBuffer, spectrum);
 
-                        // --- C. PEAK PICKING (Hanya ambil nada Puncak) ---
-                        // Ini KUNCI untuk memperbaiki error "A Major terus menerus".
-                        // Kita buang frekuensi sampah dan hanya ambil nada yang benar-benar menonjol.
-
-                        boolean[] chroma = new boolean[12];
+                        // --- D. NOISE FLOOR: 3% of peak amplitude in guitar range ---
                         float maxAmp = 0;
-                        for(float v : spectrum) maxAmp = Math.max(maxAmp, v);
-
-                        // Threshold Dinamis: Nada harus minimal 15% dari suara terkeras saat itu
-                        float dynamicThreshold = maxAmp * 0.15f;
-                        int peaksFound = 0;
-
                         for (int i = 0; i < spectrum.length; i++) {
+                            double f = fft.binToHz(i, sampleRate);
+                            if (f >= 80.0 && f <= 4000.0) maxAmp = Math.max(
+                                maxAmp,
+                                spectrum[i]
+                            );
+                        }
+                        float noiseFloor = maxAmp * 0.03f;
+
+                        // --- E. ENERGY-WEIGHTED CHROMA (float[12]) ---
+                        // Accumulate spectral amplitude into 12 pitch classes.
+                        // Using 80–4000 Hz captures guitar fundamentals AND their harmonics.
+                        // Harmonics of the same note land on the same pitch class (mod 12),
+                        // so they naturally reinforce the correct chord tones.
+                        float[] chroma = new float[12];
+                        for (int i = 1; i < spectrum.length - 1; i++) {
+                            if (spectrum[i] < noiseFloor) continue;
                             double freq = fft.binToHz(i, sampleRate);
+                            if (freq < 80.0 || freq > 4000.0) continue;
 
-                            // FILTER FREKUENSI:
-                            // Abaikan di bawah 75Hz (untuk membuang dengung listrik/bass boomy)
-                            // Abaikan di atas 2000Hz (noise desis)
-                            if (freq < 75 || freq > 2000) continue;
+                            double midiExact =
+                                69.0 +
+                                (12.0 * Math.log(freq / 440.0)) / Math.log(2);
+                            int pitchClass = ((int) Math.round(midiExact)) % 12;
+                            if (pitchClass < 0) pitchClass += 12;
+                            chroma[pitchClass] += spectrum[i];
+                        }
 
-                            if (spectrum[i] > dynamicThreshold) {
-                                // Cek apakah ini Puncak Lokal (lebih tinggi dari tetangga kiri/kanannya)
-                                if (i > 0 && i < spectrum.length - 1 &&
-                                        spectrum[i] > spectrum[i-1] && spectrum[i] > spectrum[i+1]) {
+                        // --- F. NORMALIZE CHROMA to [0.0 – 1.0] ---
+                        float maxChroma = 0;
+                        for (float v : chroma)
+                            maxChroma = Math.max(maxChroma, v);
+                        if (maxChroma <= 0) {
+                            updateVoteWindow(
+                                "-",
+                                timestamp,
+                                chordWindow,
+                                timeWindow,
+                                lastSavedChord,
+                                VOTE_WINDOW_SIZE
+                            );
+                            return true;
+                        }
+                        for (int i = 0; i < 12; i++) chroma[i] /= maxChroma;
 
-                                    // Konversi Frekuensi ke Nada (MIDI Note)
-                                    int midi = (int) Math.round(69 + 12 * Math.log(freq / 440.0) / Math.log(2));
-                                    if (midi > 0) {
-                                        chroma[midi % 12] = true; // Simpan nada (C, C#, D, dst)
-                                        peaksFound++;
-                                    }
-                                }
+                        // --- G. HARMONIC CONTENT FILTER ---
+
+                        // Check 1: Need at least 2 dominant pitch classes
+                        // (blocks silence and single notes)
+                        int dominantClasses = 0;
+                        for (float v : chroma) if (v > 0.30f) dominantClasses++;
+                        if (dominantClasses < 2) {
+                            updateVoteWindow(
+                                "-",
+                                timestamp,
+                                chordWindow,
+                                timeWindow,
+                                lastSavedChord,
+                                VOTE_WINDOW_SIZE
+                            );
+                            return true;
+                        }
+
+                        // Check 2: Reject noise/sound effects — too many active pitch classes.
+                        // Real chords have 3-5 active notes.
+                        // Noise/effects spread energy across 8-12 pitch classes.
+                        int broadClasses = 0;
+                        for (float v : chroma) if (v > 0.20f) broadClasses++;
+                        if (broadClasses > 7) {
+                            updateVoteWindow(
+                                "-",
+                                timestamp,
+                                chordWindow,
+                                timeWindow,
+                                lastSavedChord,
+                                VOTE_WINDOW_SIZE
+                            );
+                            return true;
+                        }
+
+                        // Check 3: Chroma energy must be concentrated in the top 3 pitch classes.
+                        // A chord focuses energy on 2-3 notes (root, third, fifth).
+                        // Sound effects spread energy across many bins, so top-3 share is low.
+                        float top1 = 0,
+                            top2 = 0,
+                            top3 = 0;
+                        for (float v : chroma) {
+                            if (v > top1) {
+                                top3 = top2;
+                                top2 = top1;
+                                top1 = v;
+                            } else if (v > top2) {
+                                top3 = top2;
+                                top2 = v;
+                            } else if (v > top3) {
+                                top3 = v;
                             }
                         }
-
-                        // Tentukan Chord
-                        String currentChord = "-";
-                        // Hanya tebak chord jika minimal ada 2 nada kuat (misal: Root + Third)
-                        if (peaksFound >= 2) {
-                            String match = ChordTemplates.findBestMatchingChord(chroma);
-                            if (!"N/A".equals(match)) currentChord = match;
+                        float totalChromaEnergy = 0;
+                        for (float v : chroma) totalChromaEnergy += v;
+                        float concentration =
+                            (top1 + top2 + top3) / (totalChromaEnergy + 1e-10f);
+                        if (concentration < 0.55f) {
+                            updateVoteWindow(
+                                "-",
+                                timestamp,
+                                chordWindow,
+                                timeWindow,
+                                lastSavedChord,
+                                VOTE_WINDOW_SIZE
+                            );
+                            return true;
                         }
 
-                        // Proses kestabilan chord sebelum disimpan
-                        processStableChord(audioEvent.getTimeStamp(), currentChord, potentialChord, stableCount, MIN_STABLE_FRAMES);
+                        // --- H. CHORD MATCHING via cosine similarity ---
+                        String currentChord =
+                            ChordTemplates.findBestMatchingChord(chroma);
+                        if ("N/A".equals(currentChord)) currentChord = "-";
+
+                        // --- I. VOTE WINDOW STABILIZATION ---
+                        updateVoteWindow(
+                            currentChord,
+                            timestamp,
+                            chordWindow,
+                            timeWindow,
+                            lastSavedChord,
+                            VOTE_WINDOW_SIZE
+                        );
                         return true;
                     }
 
@@ -808,48 +1054,121 @@ public class HomeFragment extends Fragment {
 
                 dispatcher.addAudioProcessor(chordProcessor);
                 dispatcher.run();
-
             } catch (Exception e) {
                 e.printStackTrace();
             }
-        }).start();
+        })
+            .start();
     }
 
-    // Fungsi Helper untuk logika stabilisasi (menghindari duplikasi kode)
-    private void processStableChord(double time, String currentChord, String[] potential, int[] count, int minFrames) {
-        if (currentChord.equals(potential[0])) {
-            count[0]++;
-        } else {
-            // Jika chord berubah, reset counter
-            potential[0] = currentChord;
-            count[0] = 1;
+    /**
+     * Adds a chord result to the sliding vote window and records a chord change
+     * when a candidate achieves majority. The onset timestamp is taken from the
+     * FIRST occurrence of the winning chord inside the current window, which
+     * corrects the latency introduced by the stability requirement.
+     */
+    private void updateVoteWindow(
+        String chord,
+        double timestamp,
+        ArrayDeque<String> chordWindow,
+        ArrayDeque<Double> timeWindow,
+        String[] lastSaved,
+        int windowSize
+    ) {
+        chordWindow.addLast(chord);
+        timeWindow.addLast(timestamp);
+        if (chordWindow.size() > windowSize) {
+            chordWindow.pollFirst();
+            timeWindow.pollFirst();
         }
 
-        // Jika chord konsisten selama sekian frame, baru kita anggap valid
-        if (count[0] >= minFrames) {
-            synchronized (detectedChords) {
-                // Opsional: Hanya simpan jika BEDA dengan chord yang baru saja disimpan
-                // (Agar list tidak penuh dengan chord yang sama berulang-ulang)
-                if (detectedChords.isEmpty() ||
-                        !detectedChords.get(detectedChords.size() - 1).chordName.equals(currentChord)) {
-                    detectedChords.add(new ChordTimestamp(time, currentChord));
-                }
+        // Wait until the window is fully populated before making decisions
+        if (chordWindow.size() < windowSize) return;
+
+        // Count votes for each chord candidate
+        HashMap<String, Integer> votes = new HashMap<>();
+        for (String c : chordWindow) votes.merge(c, 1, Integer::sum);
+
+        // Find the chord with the most votes
+        String winner = "-";
+        int maxVotes = 0;
+        for (Map.Entry<String, Integer> e : votes.entrySet()) {
+            if (e.getValue() > maxVotes) {
+                maxVotes = e.getValue();
+                winner = e.getKey();
             }
         }
+
+        // Require a clear majority (more than half the window)
+        int majority = windowSize / 2 + 1; // e.g., 3 out of 5
+        if (maxVotes < majority) return;
+
+        // Only record if this is a different chord from what was last saved
+        if (winner.equals(lastSaved[0])) return;
+
+        // Find the timestamp of the FIRST occurrence of the winner in the window.
+        // This gives a better chord onset time instead of the (delayed) last stable frame.
+        double onsetTime = timestamp;
+        String[] windowChords = chordWindow.toArray(new String[0]);
+        Double[] windowTimes = timeWindow.toArray(new Double[0]);
+        for (int i = 0; i < windowChords.length; i++) {
+            if (windowChords[i].equals(winner)) {
+                onsetTime = windowTimes[i];
+                break;
+            }
+        }
+
+        synchronized (detectedChords) {
+            detectedChords.add(new ChordTimestamp(onsetTime, winner));
+        }
+        lastSaved[0] = winner;
     }
+
+    // // Fungsi Helper untuk logika stabilisasi (menghindari duplikasi kode)
+    // private void processStableChord(double time, String currentChord, String[] potential, int[] count, int minFrames) {
+    //     if (currentChord.equals(potential[0])) {
+    //         count[0]++;
+    //     } else {
+    //         // Jika chord berubah, reset counter
+    //         potential[0] = currentChord;
+    //         count[0] = 1;
+    //     }
+
+    //     // Jika chord konsisten selama sekian frame, baru kita anggap valid
+    //     if (count[0] >= minFrames) {
+    //         synchronized (detectedChords) {
+    //             // Opsional: Hanya simpan jika BEDA dengan chord yang baru saja disimpan
+    //             // (Agar list tidak penuh dengan chord yang sama berulang-ulang)
+    //             if (detectedChords.isEmpty() ||
+    //                     !detectedChords.get(detectedChords.size() - 1).chordName.equals(currentChord)) {
+    //                 detectedChords.add(new ChordTimestamp(time, currentChord));
+    //             }
+    //         }
+    //     }
+    // }
 
     // Fungsi Helper untuk update UI terakhir
     private void finalizeResults() {
         if (getActivity() != null) {
             getActivity().runOnUiThread(() -> {
                 StringBuilder sb = new StringBuilder();
-                sb.append(audioTitle != null ? audioTitle : "Audio").append("\n");
+                sb
+                    .append(audioTitle != null ? audioTitle : "Audio")
+                    .append("\n");
 
                 for (ChordTimestamp item : detectedChords) {
                     int mm = (int) (item.timeSeconds / 60);
                     int ss = (int) (item.timeSeconds % 60);
                     // Format [01:23] NamaChord
-                    sb.append(String.format(java.util.Locale.US, "[%02d:%02d] %s\n", mm, ss, item.chordName));
+                    sb.append(
+                        String.format(
+                            java.util.Locale.US,
+                            "[%02d:%02d] %s\n",
+                            mm,
+                            ss,
+                            item.chordName
+                        )
+                    );
                 }
 
                 if (detectedChords.isEmpty()) {
@@ -868,7 +1187,6 @@ public class HomeFragment extends Fragment {
         }
     }
 
-
     // KONVERTER STEREO KE MONO
     private byte[] convertToMono(byte[] stereoData) {
         if (stereoData == null || stereoData.length == 0) return stereoData;
@@ -876,7 +1194,9 @@ public class HomeFragment extends Fragment {
         // setiap sample 2 byte (16-bit)
         int totalSamples = stereoData.length / 2; // jumlah 'short' samples (both channels)
         int totalFrames = totalSamples / 2; // setiap frame punya 2 channel
-        ByteBuffer bb = ByteBuffer.wrap(stereoData).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        ByteBuffer bb = ByteBuffer.wrap(stereoData).order(
+            java.nio.ByteOrder.LITTLE_ENDIAN
+        );
         java.nio.ShortBuffer sb = bb.asShortBuffer();
 
         short[] monoShorts = new short[totalFrames];
@@ -888,11 +1208,12 @@ public class HomeFragment extends Fragment {
             monoShorts[i] = (short) avg;
         }
 
-        ByteBuffer outBb = ByteBuffer.allocate(monoShorts.length * 2).order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        ByteBuffer outBb = ByteBuffer.allocate(monoShorts.length * 2).order(
+            java.nio.ByteOrder.LITTLE_ENDIAN
+        );
         outBb.asShortBuffer().put(monoShorts);
         return outBb.array();
     }
-
 
     // Method Decoder yang mengembalikan Data + Format
     private AudioData decodeAudio(String path) {
@@ -941,21 +1262,40 @@ public class HomeFragment extends Fragment {
                     if (inIndex >= 0) {
                         ByteBuffer inputBuffer = codec.getInputBuffer(inIndex);
                         if (inputBuffer != null) {
-                            int sampleSize = extractor.readSampleData(inputBuffer, 0);
+                            int sampleSize = extractor.readSampleData(
+                                inputBuffer,
+                                0
+                            );
                             if (sampleSize < 0) {
                                 // End of stream -- send EOS to codec
-                                codec.queueInputBuffer(inIndex, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                                codec.queueInputBuffer(
+                                    inIndex,
+                                    0,
+                                    0,
+                                    0,
+                                    MediaCodec.BUFFER_FLAG_END_OF_STREAM
+                                );
                                 inputDone = true;
                             } else {
-                                long presentationTimeUs = extractor.getSampleTime();
-                                codec.queueInputBuffer(inIndex, 0, sampleSize, presentationTimeUs, 0);
+                                long presentationTimeUs =
+                                    extractor.getSampleTime();
+                                codec.queueInputBuffer(
+                                    inIndex,
+                                    0,
+                                    sampleSize,
+                                    presentationTimeUs,
+                                    0
+                                );
                                 extractor.advance();
                             }
                         }
                     }
                 }
 
-                int outIndex = codec.dequeueOutputBuffer(bufferInfo, TIMEOUT_US);
+                int outIndex = codec.dequeueOutputBuffer(
+                    bufferInfo,
+                    TIMEOUT_US
+                );
 
                 if (outIndex >= 0) {
                     ByteBuffer outBuffer = codec.getOutputBuffer(outIndex);
@@ -969,7 +1309,11 @@ public class HomeFragment extends Fragment {
                     codec.releaseOutputBuffer(outIndex, false);
 
                     // Check for end of stream from codec
-                    if ((bufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+                    if (
+                        (bufferInfo.flags &
+                            MediaCodec.BUFFER_FLAG_END_OF_STREAM) !=
+                        0
+                    ) {
                         outputDone = true;
                     }
                 } else if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
@@ -980,7 +1324,9 @@ public class HomeFragment extends Fragment {
                     // If input is done and no more output, we should continue waiting for EOS
                     if (inputDone) {
                         // small sleep to avoid busy loop
-                        try { Thread.sleep(10); } catch (InterruptedException ignored) {}
+                        try {
+                            Thread.sleep(10);
+                        } catch (InterruptedException ignored) {}
                     }
                 }
             }
@@ -1001,10 +1347,17 @@ public class HomeFragment extends Fragment {
                 sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE);
             }
 
-            Log.d("DecodeAudio", "Decoded PCM bytes: " + pcmBytes.length + " channels=" + channels + " sr=" + sampleRate);
+            Log.d(
+                "DecodeAudio",
+                "Decoded PCM bytes: " +
+                    pcmBytes.length +
+                    " channels=" +
+                    channels +
+                    " sr=" +
+                    sampleRate
+            );
 
             return new AudioData(pcmBytes, sampleRate, channels);
-
         } catch (Exception e) {
             Log.e("DecodeAudio", "Decode error", e);
             return null;
@@ -1016,53 +1369,73 @@ public class HomeFragment extends Fragment {
         String uid = FirebaseAuth.getInstance().getUid();
 
         if (uid != null) {
-            com.google.firebase.firestore.CollectionReference historyRef =
-                    db.collection("users").document(uid).collection("history");
+            com.google.firebase.firestore.CollectionReference historyRef = db
+                .collection("users")
+                .document(uid)
+                .collection("history");
 
             // 1. Cek Apakah judul lagu ini sudah ada?
-            historyRef.whereEqualTo("title", title)
-                    .get()
-                    .addOnCompleteListener(task -> {
-                        if (task.isSuccessful()) {
-                            if (!task.getResult().isEmpty()) {
-                                // KONDISI 1: SUDAH ADA (UPDATE) ===
-                                // Ambil dokumen pertama yang ditemukan
-                                DocumentSnapshot doc = task.getResult().getDocuments().get(0);
-                                String docId = doc.getId();
+            historyRef
+                .whereEqualTo("title", title)
+                .get()
+                .addOnCompleteListener(task -> {
+                    if (task.isSuccessful()) {
+                        if (!task.getResult().isEmpty()) {
+                            // KONDISI 1: SUDAH ADA (UPDATE) ===
+                            // Ambil dokumen pertama yang ditemukan
+                            DocumentSnapshot doc = task
+                                .getResult()
+                                .getDocuments()
+                                .get(0);
+                            String docId = doc.getId();
 
-                                // Update Timestamp (biar jadi paling atas) dan Path file baru
-                                historyRef.document(docId).update(
-                                        "timestamp", new Timestamp(new Date()),
-                                        "result", resultText,
-                                        "filePath", path
-                                ).addOnSuccessListener(aVoid -> {
-                                    Log.d("Firestore", "History updated: " + title);
+                            // Update Timestamp (biar jadi paling atas) dan Path file baru
+                            historyRef
+                                .document(docId)
+                                .update(
+                                    "timestamp",
+                                    new Timestamp(new Date()),
+                                    "result",
+                                    resultText,
+                                    "filePath",
+                                    path
+                                )
+                                .addOnSuccessListener(aVoid -> {
+                                    Log.d(
+                                        "Firestore",
+                                        "History updated: " + title
+                                    );
                                     if (getActivity() != null) {
-                                        Toast.makeText(getContext(), "History diperbarui", Toast.LENGTH_SHORT).show();
+                                        Toast.makeText(
+                                            getContext(),
+                                            "History diperbarui",
+                                            Toast.LENGTH_SHORT
+                                        ).show();
                                     }
                                 });
-
-                            } else {
-                                // === KONDISI 2: BELUM ADA (BUAT BARU) ===
-                                ChordHistory history = new ChordHistory(
-                                        title,
-                                        path,
-                                        resultText,
-                                        new Timestamp(new Date())
-                                );
-
-                                historyRef.add(history)
-                                        .addOnSuccessListener(documentReference -> {
-                                            Log.d("Firestore", "New history added");
-                                        });
-                            }
                         } else {
-                            Log.e("Firestore", "Error checking history", task.getException());
+                            // === KONDISI 2: BELUM ADA (BUAT BARU) ===
+                            ChordHistory history = new ChordHistory(
+                                title,
+                                path,
+                                resultText,
+                                new Timestamp(new Date())
+                            );
+
+                            historyRef
+                                .add(history)
+                                .addOnSuccessListener(documentReference -> {
+                                    Log.d("Firestore", "New history added");
+                                });
                         }
-                    });
+                    } else {
+                        Log.e(
+                            "Firestore",
+                            "Error checking history",
+                            task.getException()
+                        );
+                    }
+                });
         }
     }
-
-
-
 }

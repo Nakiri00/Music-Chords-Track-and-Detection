@@ -5,7 +5,6 @@ import androidx.annotation.NonNull;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 import androidx.lifecycle.ViewModel;
-import com.example.musicchords.BuildConfig;
 
 import java.io.IOException;
 import java.util.regex.Matcher;
@@ -51,7 +50,7 @@ public class HomeViewModel extends ViewModel{
         Request request = new Request.Builder()
                 .url("https://youtube-mp36.p.rapidapi.com/dl?id=" + videoId)
                 .get()
-                .addHeader("x-rapidapi-key", BuildConfig.API_KEY)
+                .addHeader("x-rapidapi-key","a2a9510207msheeca3f728ede5afp1b5184jsn7d296cce0748")
                 .addHeader("x-rapidapi-host", "youtube-mp36.p.rapidapi.com")
                 .build();
 
@@ -96,34 +95,4 @@ public class HomeViewModel extends ViewModel{
     public void clearErrorMessage() {
         errorMessage.setValue(null);
     }
-
-//    public void fetchDataFromApi(){
-//        isLoading.setValue(true);
-//        OkHttpClient client = new OkHttpClient();
-//        Request request = new Request.Builder()
-//                .url("https://youtube-mp36.p.rapidapi.com/dl?id=UxxajLWwzqY")
-//                .get()
-//                .addHeader("x-rapidapi-key", "a2a9510207msheeca3f728ede5afp1b5184jsn7d296cce0748")
-//                .addHeader("x-rapidapi-host", "youtube-mp36.p.rapidapi.com")
-//                .build();
-//
-//        client.newCall(request).enqueue(new Callback() {
-//            @Override
-//            public void onFailure(@NonNull Call call, @NonNull IOException e) {
-//                errorMessage.postValue("Gagal Terhubung ke Server : "+e.getMessage());
-//                isLoading.postValue(false);
-//            }
-//
-//            @Override
-//            public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
-//                if(response.isSuccessful()){
-//                    String responseBody = response.body().string();
-//                    apiResponse.postValue(responseBody);
-//                }else{
-//                    errorMessage.postValue("Error : "+response.code()+ " "+ response.message());
-//                }
-//                isLoading.postValue(false);
-//            }
-//        });
-//    }
 }

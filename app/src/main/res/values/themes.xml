@@ -6,4 +6,24 @@
     </style>
 
     <style name="Theme.MusicChords" parent="Base.Theme.MusicChords" />
+
+    <!-- Base dialog: inherits Material3 day/night colors + rounded corners -->
+    <style name="App.AlertDialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="shapeAppearanceOverlay">@style/App.AlertDialog.Shape</item>
+    </style>
+
+    <!-- Rounded corner shape used by all app dialogs -->
+    <style name="App.AlertDialog.Shape" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">20dp</item>
+    </style>
+
+    <!-- Destructive dialog (e.g. delete): positive button turns red via colorError -->
+    <style name="App.AlertDialog.Destructive" parent="App.AlertDialog">
+        <item name="buttonBarPositiveButtonStyle">@style/App.AlertDialog.Destructive.Button</item>
+    </style>
+
+    <style name="App.AlertDialog.Destructive.Button" parent="Widget.Material3.Button.TextButton.Dialog">
+        <item name="android:textColor">?attr/colorError</item>
+    </style>
 </resources>
