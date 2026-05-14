@@ -1,98 +1,571 @@
 package com.example.musicchords;
-import android.util.Log;
 
+import android.app.Application;
+import android.app.DownloadManager;
+import android.content.Context;
+import android.database.Cursor;
+import android.media.MediaPlayer;
+import android.net.Uri;
+import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.OpenableColumns;
+import android.util.Log;
 import androidx.annotation.NonNull;
+import androidx.lifecycle.AndroidViewModel;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
-import androidx.lifecycle.ViewModel;
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonSyntaxException;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.List;
 
-import java.io.IOException;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+public class HomeViewModel extends AndroidViewModel {
 
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
-import okhttp3.Call;
-import okhttp3.Callback;
-public class HomeViewModel extends ViewModel{
-    private final MutableLiveData<String> apiResponse = new MutableLiveData<>();
-    private final MutableLiveData<Boolean> isLoading = new MutableLiveData<>();
-    private final MutableLiveData<String> errorMessage = new MutableLiveData<>();
+    private static final String TAG = "HomeViewModel";
 
-    public MutableLiveData<String> getApiResponse() {
-        return apiResponse;
+    // Repositories
+    private final YoutubeRepository youtubeRepository = new YoutubeRepository();
+    private final AudioAnalysisRepository analysisRepository =
+        new AudioAnalysisRepository();
+    private final HistoryRepository historyRepository = new HistoryRepository();
+
+    // LiveData — YouTube conversion
+    private final MutableLiveData<Boolean> isLoading = new MutableLiveData<>(
+        false
+    );
+    private final MutableLiveData<String> downloadLink = new MutableLiveData<>(
+        null
+    );
+
+    // LiveData — Status text (drives resultTextView)
+    private final MutableLiveData<String> statusText = new MutableLiveData<>(
+        ""
+    );
+
+    // LiveData — Toast message (one-shot)
+    private final MutableLiveData<String> toastMessage = new MutableLiveData<>(
+        null
+    );
+
+    // LiveData — Analysis
+    private final MutableLiveData<Boolean> isAnalyzing = new MutableLiveData<>(
+        false
+    );
+
+    // LiveData — Player
+    private final MutableLiveData<String> playerTitle = new MutableLiveData<>(
+        ""
+    );
+    private final MutableLiveData<Boolean> playerReady = new MutableLiveData<>(
+        false
+    );
+    private final MutableLiveData<Boolean> isPlaying = new MutableLiveData<>(
+        false
+    );
+    private final MutableLiveData<Integer> playerDuration =
+        new MutableLiveData<>(0);
+    private final MutableLiveData<Integer> playerPosition =
+        new MutableLiveData<>(0);
+    private final MutableLiveData<String> currentChordDisplay =
+        new MutableLiveData<>("-");
+
+    // LiveData — File state
+    private final MutableLiveData<Boolean> fileLoaded = new MutableLiveData<>(
+        false
+    );
+
+    // Internal state
+    private String audioTitle = "";
+    private String audioFilePath = null;
+    private final List<ChordTimestamp> detectedChords = new ArrayList<>();
+
+    // MediaPlayer & Handlers
+    private MediaPlayer mediaPlayer;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private Runnable seekBarRunnable;
+    private final Handler chordHandler = new Handler(Looper.getMainLooper());
+    private Runnable chordRunnable;
+
+    public HomeViewModel(@NonNull Application application) {
+        super(application);
     }
 
-    public MutableLiveData<Boolean> getIsLoading() {
+    // ─── Getters LiveData ───────────────────────────────────────────────────
+    public LiveData<Boolean> getIsLoading() {
         return isLoading;
     }
 
-    public MutableLiveData<String> getErrorMessage() {
-        return errorMessage;
+    public LiveData<String> getDownloadLink() {
+        return downloadLink;
     }
 
+    public LiveData<String> getStatusText() {
+        return statusText;
+    }
 
-    public void convertYoutubeUrl(String url){
-        String videoId = youtubeUrl(url);
-        if(videoId == null || videoId.isEmpty()){
-            errorMessage.postValue("URL Tidak Valid");
-            return;
-        }
+    public LiveData<String> getToastMessage() {
+        return toastMessage;
+    }
 
+    public LiveData<Boolean> getIsAnalyzing() {
+        return isAnalyzing;
+    }
+
+    public LiveData<String> getPlayerTitle() {
+        return playerTitle;
+    }
+
+    public LiveData<Boolean> getPlayerReady() {
+        return playerReady;
+    }
+
+    public LiveData<Boolean> getIsPlaying() {
+        return isPlaying;
+    }
+
+    public LiveData<Integer> getPlayerDuration() {
+        return playerDuration;
+    }
+
+    public LiveData<Integer> getPlayerPosition() {
+        return playerPosition;
+    }
+
+    public LiveData<String> getCurrentChordDisplay() {
+        return currentChordDisplay;
+    }
+
+    public LiveData<Boolean> getFileLoaded() {
+        return fileLoaded;
+    }
+
+    public String getAudioTitle() {
+        return audioTitle;
+    }
+
+    public String getAudioFilePath() {
+        return audioFilePath;
+    }
+
+    // ─── YouTube Conversion ─────────────────────────────────────────────────
+    public void convertYoutubeUrl(String url) {
         isLoading.postValue(true);
-        errorMessage.postValue(null);
-        apiResponse.postValue(null);
+        downloadLink.postValue(null);
+        statusText.postValue("Memproses...");
 
-        OkHttpClient client = new OkHttpClient();
-//        String apiUrl = "https://youtube-mp36.p.rapidapi.com/dl?id=" + videoId;
-
-        Request request = new Request.Builder()
-                .url("https://youtube-mp36.p.rapidapi.com/dl?id=" + videoId)
-                .get()
-                .addHeader("x-rapidapi-key","a2a9510207msheeca3f728ede5afp1b5184jsn7d296cce0748")
-                .addHeader("x-rapidapi-host", "youtube-mp36.p.rapidapi.com")
-                .build();
-
-        client.newCall(request).enqueue(new Callback() {
-            @Override
-            public void onFailure(@NonNull Call call, @NonNull IOException e) {
-                Log.e("HomeViewModel", "API Call Failed", e);
-                errorMessage.postValue("Gagal Terhubung ke Server : " + e.getMessage());
-                isLoading.postValue(false);
-            }
-
-            @Override
-            public void onResponse(@NonNull Call call, @NonNull Response response) throws IOException {
-                if(response.isSuccessful()){
-                    String responseBody = response.body().string();
-                    apiResponse.postValue(responseBody);
-                }else{
-                    Log.e("HomeViewModel", "API Error : " + response.code() + " " + response.message());
-                    errorMessage.postValue("Error dari Server : " + response.code());
+        youtubeRepository.convertYoutubeUrl(
+            url,
+            new YoutubeRepository.ConversionCallback() {
+                @Override
+                public void onSuccess(String responseJson) {
+                    isLoading.postValue(false);
+                    parseYoutubeResponse(responseJson);
                 }
-                isLoading.postValue(false);
+
+                @Override
+                public void onError(String errorMessage) {
+                    isLoading.postValue(false);
+                    toastMessage.postValue(errorMessage);
+                    statusText.postValue("Error: " + errorMessage);
+                }
             }
-        });
+        );
     }
 
-    private String youtubeUrl(String url){
-        if (url == null || url.trim().isEmpty()){
-            return "";
+    private void parseYoutubeResponse(String response) {
+        try {
+            JsonObject json = new Gson().fromJson(response, JsonObject.class);
+            String status = json.has("status")
+                ? json.get("status").getAsString()
+                : "error";
+            if ("ok".equalsIgnoreCase(status) && json.has("link")) {
+                audioTitle = json.has("title")
+                    ? json.get("title").getAsString()
+                    : "audio";
+                downloadLink.postValue(json.get("link").getAsString());
+                statusText.postValue("Audio Siap: " + audioTitle);
+            } else if ("processing".equalsIgnoreCase(status)) {
+                statusText.postValue(
+                    "Server Sedang Memproses Video. Mohon Tunggu"
+                );
+            } else {
+                String msg = json.has("mess")
+                    ? json.get("mess").getAsString()
+                    : "Format Respons Tidak Dikenal";
+                statusText.postValue("Gagal: " + msg);
+            }
+        } catch (JsonSyntaxException e) {
+            Log.e(TAG, "JSON Parsing Error", e);
+            statusText.postValue(
+                "Terjadi kesalahan saat memproses respons server."
+            );
         }
-
-        String pattern = "((http|https)://)?(?:[0-9A-Z-]+\\.)?(?:youtu\\.be/|youtube(?:-nocookie)?\\.com\\S*[^\\w\\s-])([\\w-]{11})(?=[^\\w-]|$)(?![?=&+%\\w.-]*(?:['\"][^<>]*>|</a>))[?=&+%\\w.-]*";
-        Pattern p = Pattern.compile(pattern, Pattern.CASE_INSENSITIVE);
-        Matcher m = p.matcher(url);
-
-        if (m.find()) {
-            return m.group(3);
-        }
-
-        return "";
     }
 
-    public void clearErrorMessage() {
-        errorMessage.setValue(null);
+    public void clearToastMessage() {
+        toastMessage.setValue(null);
+    }
+
+    // ─── Download ───────────────────────────────────────────────────────────
+    public long downloadAudio(String url, String title) {
+        String safeName = title.replaceAll("[\\\\/:*?\"<>|]", "_");
+        DownloadManager.Request request = new DownloadManager.Request(
+            Uri.parse(url)
+        );
+        request.setTitle(title);
+        request.setDescription("Mengunduh Audio MP3");
+        request.setNotificationVisibility(
+            DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED
+        );
+        request.setDestinationInExternalPublicDir(
+            Environment.DIRECTORY_DOWNLOADS,
+            safeName + ".mp3"
+        );
+        DownloadManager dm =
+            (DownloadManager) getApplication().getSystemService(
+                Context.DOWNLOAD_SERVICE
+            );
+        return dm.enqueue(request);
+    }
+
+    // ─── File Processing ────────────────────────────────────────────────────
+    public void processAudioFile(Uri uri, String customTitle) {
+        new Thread(() -> {
+            try {
+                Context ctx = getApplication().getApplicationContext();
+                String fileName = getFileNameFromUri(ctx, uri);
+                if (fileName == null) fileName =
+                    "audio_" + System.currentTimeMillis() + ".mp3";
+
+                String safeFileName = fileName.replaceAll(
+                    "[\\\\/:*?\"<>|]",
+                    "_"
+                );
+                File destFile = new File(
+                    ctx.getFilesDir(),
+                    "history_" + safeFileName
+                );
+
+                try (
+                    InputStream in = ctx
+                        .getContentResolver()
+                        .openInputStream(uri);
+                    FileOutputStream out = new FileOutputStream(destFile)
+                ) {
+                    byte[] buf = new byte[8 * 1024];
+                    int len;
+                    while ((len = in.read(buf)) > 0) out.write(buf, 0, len);
+                }
+
+                String resolvedTitle = (customTitle != null &&
+                    !customTitle.isEmpty())
+                    ? customTitle
+                    : fileName;
+                handler.post(() -> {
+                    audioFilePath = destFile.getAbsolutePath();
+                    audioTitle = resolvedTitle;
+                    detectedChords.clear();
+                    currentChordDisplay.setValue("-");
+                    statusText.setValue("File Siap: " + resolvedTitle);
+                    fileLoaded.setValue(true);
+                    setupAudioPlayer(audioFilePath, audioTitle);
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "Error processing file", e);
+                handler.post(() ->
+                    toastMessage.setValue(
+                        "Gagal memproses file: " + e.getMessage()
+                    )
+                );
+            }
+        })
+            .start();
+    }
+
+    private String getFileNameFromUri(Context ctx, Uri uri) {
+        String result = null;
+        if ("content".equals(uri.getScheme())) {
+            try (
+                Cursor c = ctx
+                    .getContentResolver()
+                    .query(uri, null, null, null, null)
+            ) {
+                if (c != null && c.moveToFirst()) {
+                    int idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                    if (idx != -1) result = c.getString(idx);
+                }
+            }
+        }
+        if (result == null) {
+            result = uri.getPath();
+            int cut = (result != null) ? result.lastIndexOf('/') : -1;
+            if (cut != -1) result = result.substring(cut + 1);
+        }
+        return result;
+    }
+
+    // ─── Audio Player ───────────────────────────────────────────────────────
+    private void setupAudioPlayer(String path, String title) {
+        releaseMediaPlayer();
+        try {
+            mediaPlayer = new MediaPlayer();
+            mediaPlayer.setDataSource(path);
+
+            mediaPlayer.setOnPreparedListener(mp -> {
+                playerTitle.setValue(title != null ? title : "");
+                playerDuration.setValue(mp.getDuration());
+                playerPosition.setValue(0);
+                isPlaying.setValue(false);
+                playerReady.setValue(true);
+            });
+
+            mediaPlayer.setOnCompletionListener(mp -> {
+                isPlaying.postValue(false);
+                playerPosition.postValue(0);
+                if (seekBarRunnable != null) handler.removeCallbacks(
+                    seekBarRunnable
+                );
+                stopChordSync();
+            });
+
+            mediaPlayer.setOnErrorListener((mp, what, extra) -> {
+                Log.e(
+                    TAG,
+                    "MediaPlayer error: what=" + what + " extra=" + extra
+                );
+                releaseMediaPlayer();
+                toastMessage.postValue("Gagal memuat audio");
+                return true;
+            });
+
+            mediaPlayer.prepareAsync(); // ← non-blocking, tidak freeze UI
+        } catch (Exception e) {
+            Log.e(TAG, "Error setting up audio", e);
+            playerReady.postValue(false);
+            toastMessage.postValue("Gagal memuat audio");
+        }
+    }
+
+    public void playAudio() {
+        if (mediaPlayer != null) {
+            mediaPlayer.start();
+            isPlaying.postValue(true);
+            startSeekBarUpdate();
+            startChordSync();
+        }
+    }
+
+    public void pauseAudio() {
+        if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+            mediaPlayer.pause();
+            isPlaying.postValue(false);
+            if (seekBarRunnable != null) handler.removeCallbacks(
+                seekBarRunnable
+            );
+            stopChordSync();
+        }
+    }
+
+    public void seekTo(int position) {
+        if (mediaPlayer != null) {
+            mediaPlayer.seekTo(position);
+            playerPosition.postValue(position);
+        }
+    }
+
+    public void releaseMediaPlayer() {
+        stopChordSync();
+        if (seekBarRunnable != null) handler.removeCallbacks(seekBarRunnable);
+        if (mediaPlayer != null) {
+            mediaPlayer.release();
+            mediaPlayer = null;
+        }
+        playerReady.postValue(false);
+        isPlaying.postValue(false);
+    }
+
+    private void startSeekBarUpdate() {
+        seekBarRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+                    playerPosition.postValue(mediaPlayer.getCurrentPosition());
+                    handler.postDelayed(this, 1000);
+                }
+            }
+        };
+        handler.post(seekBarRunnable);
+    }
+
+    private void startChordSync() {
+        chordRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (mediaPlayer != null && mediaPlayer.isPlaying()) {
+                    double sec = mediaPlayer.getCurrentPosition() / 1000.0;
+                    currentChordDisplay.postValue(getCurrentChordAt(sec));
+                    chordHandler.postDelayed(this, 100);
+                }
+            }
+        };
+        chordHandler.post(chordRunnable);
+    }
+
+    private void stopChordSync() {
+        if (chordRunnable != null) chordHandler.removeCallbacks(chordRunnable);
+    }
+
+    private String getCurrentChordAt(double currentTime) {
+        String result = "-";
+        for (ChordTimestamp item : detectedChords) {
+            if (currentTime >= item.getTimeSeconds()) result =
+                item.getChordName();
+            else break;
+        }
+        return result;
+    }
+
+    // ─── Audio Analysis ─────────────────────────────────────────────────────
+    public void analyzeChords(String audioPath, String title) {
+        if (Boolean.TRUE.equals(isAnalyzing.getValue())) return;
+        isAnalyzing.setValue(true); // ← setValue, bukan postValue (sudah di main thread)
+        currentChordDisplay.setValue("Analyzing Chords...");
+        detectedChords.clear();
+
+        analysisRepository.analyzeChords(
+            audioPath,
+            new AudioAnalysisRepository.AnalysisCallback() {
+                @Override
+                public void onComplete(List<ChordTimestamp> results) {
+                    StringBuilder sb = new StringBuilder();
+                    sb.append(title != null ? title : "Audio").append("\n");
+                    for (ChordTimestamp item : results) {
+                        sb.append(
+                            String.format(
+                                java.util.Locale.US,
+                                "[%02d:%02d] %s\n",
+                                (int) (item.getTimeSeconds() / 60),
+                                (int) (item.getTimeSeconds() % 60),
+                                item.getChordName()
+                            )
+                        );
+                    }
+                    String fullResult = sb.toString();
+
+                    handler.post(() -> {
+                        detectedChords.clear();
+                        detectedChords.addAll(results);
+
+                        isAnalyzing.setValue(false);
+                        currentChordDisplay.setValue(
+                            results.isEmpty()
+                                ? "Tidak ada chord terdeteksi."
+                                : "Analisis Selesai"
+                        );
+                        statusText.setValue("Analisis selesai.");
+
+                        historyRepository.saveOrUpdateHistory(
+                            title,
+                            audioPath,
+                            fullResult,
+                            new HistoryRepository.OnSaveListener() {
+                                @Override
+                                public void onSuccess(boolean isUpdate) {
+                                    Log.d(
+                                        TAG,
+                                        "History saved, isUpdate=" + isUpdate
+                                    );
+                                }
+
+                                @Override
+                                public void onError(Exception e) {
+                                    Log.e(TAG, "Failed to save history", e);
+                                }
+                            }
+                        );
+                    });
+                }
+
+                @Override
+                public void onError(Exception e) {
+                    Log.e(TAG, "Analysis error", e);
+                    handler.post(() -> {
+                        isAnalyzing.setValue(false);
+                        toastMessage.setValue(
+                            "Gagal menganalisis audio: " + e.getMessage()
+                        );
+                        currentChordDisplay.setValue("-");
+                    });
+                }
+            }
+        );
+    }
+
+    // ─── Load History ───────────────────────────────────────────────────────
+    public void loadHistoryData(
+        String audioPath,
+        String title,
+        String savedChordData
+    ) {
+        audioFilePath = audioPath;
+        audioTitle = title != null ? title : "";
+        stopChordSync();
+        detectedChords.clear();
+        currentChordDisplay.setValue("-");
+
+        if (savedChordData != null && !savedChordData.isEmpty()) {
+            parseAndLoadChords(savedChordData);
+            statusText.setValue("Data dimuat dari History.");
+        } else {
+            statusText.setValue("File siap. Silakan Analisis.");
+        }
+        fileLoaded.setValue(true);
+        setupAudioPlayer(audioPath, audioTitle);
+    }
+
+    private void parseAndLoadChords(String savedData) {
+        detectedChords.clear();
+        int count = 0;
+        for (String line : savedData.split("\n")) {
+            line = line.trim();
+            if (line.startsWith("[") && line.contains("]")) {
+                try {
+                    int bracket = line.indexOf("]");
+                    String[] parts = line.substring(1, bracket).split(":");
+                    if (parts.length == 2) {
+                        double totalSec =
+                            Integer.parseInt(parts[0]) * 60 +
+                            Integer.parseInt(parts[1]);
+                        detectedChords.add(
+                            new ChordTimestamp(
+                                totalSec,
+                                line.substring(bracket + 1).trim()
+                            )
+                        );
+                        count++;
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "Skipping line: " + line);
+                }
+            }
+        }
+        currentChordDisplay.setValue(
+            count > 0
+                ? "Data Loaded (" + count + " Chords)"
+                : "No chord data found."
+        );
+    }
+
+    @Override
+    protected void onCleared() {
+        super.onCleared();
+        releaseMediaPlayer();
+        handler.removeCallbacksAndMessages(null);
+        chordHandler.removeCallbacksAndMessages(null);
     }
 }

@@ -1,34 +1,42 @@
 package com.example.musicchords;
 
-import android.content.Context;
-import android.media.MediaPlayer;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageButton;
 import android.widget.TextView;
-import android.widget.Toast;
-
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
-
+import java.util.ArrayList;
 import java.util.List;
 
 public class ChordAdapter extends RecyclerView.Adapter<ChordAdapter.ChordViewHolder> {
 
-    private Context context;
-    private List<Chord> chordList;
-    private MediaPlayer mediaPlayer;
+    private final List<Chord> chordList = new ArrayList<>();
 
-    public ChordAdapter(Context context, List<Chord> chordList) {
-        this.context = context;
-        this.chordList = chordList;
+    // Callback ke ViewModel — Adapter tidak tahu soal MediaPlayer sama sekali
+    private OnPlayAudioListener playListener;
+
+    public interface OnPlayAudioListener {
+        void onPlay(Chord chord);
+    }
+
+    public void setOnPlayAudioListener(OnPlayAudioListener l) {
+        this.playListener = l;
+    }
+
+    /** Dipanggil dari Fragment saat LiveData chords berubah */
+    public void updateData(List<Chord> newChords) {
+        chordList.clear();
+        chordList.addAll(newChords);
+        notifyDataSetChanged();
     }
 
     @NonNull
     @Override
     public ChordViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-        View view = LayoutInflater.from(context).inflate(R.layout.item_chord, parent, false);
+        View view = LayoutInflater.from(parent.getContext())
+                .inflate(R.layout.item_chord, parent, false);
         return new ChordViewHolder(view);
     }
 
@@ -36,46 +44,30 @@ public class ChordAdapter extends RecyclerView.Adapter<ChordAdapter.ChordViewHol
     public void onBindViewHolder(@NonNull ChordViewHolder holder, int position) {
         Chord chord = chordList.get(position);
 
-        // Pasang nama dan teks senar
         holder.tvChordName.setText(chord.getChordName());
         holder.tvChordStrings.setText("Senar: " + chord.getStrings());
-
-        // MENGGAMBAR DIAGRAM AKOR SECARA OTOMATIS!
         holder.chordView.setChordPositions(chord.getStrings());
 
         holder.btnPlayAudio.setOnClickListener(v -> {
-            try {
-                if (mediaPlayer != null) mediaPlayer.release();
-                if (chord.getAudioResId() != 0) {
-                    mediaPlayer = MediaPlayer.create(context, chord.getAudioResId());
-                    mediaPlayer.start();
-                    Toast.makeText(context, "Memutar " + chord.getChordName(), Toast.LENGTH_SHORT).show();
-                } else {
-                    Toast.makeText(context, "Suara belum tersedia untuk akor ini", Toast.LENGTH_SHORT).show();
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
+            if (playListener != null) playListener.onPlay(chord);
         });
     }
 
     @Override
-    public int getItemCount() {
-        return chordList.size();
-    }
+    public int getItemCount() { return chordList.size(); }
 
     public static class ChordViewHolder extends RecyclerView.ViewHolder {
-        ChordView chordView; // Berubah dari ImageView menjadi ChordView
+        ChordView chordView;
         TextView tvChordName;
         TextView tvChordStrings;
         ImageButton btnPlayAudio;
 
         public ChordViewHolder(@NonNull View itemView) {
             super(itemView);
-            chordView = itemView.findViewById(R.id.cv_chord_diagram);
-            tvChordName = itemView.findViewById(R.id.tv_chord_name);
-            tvChordStrings = itemView.findViewById(R.id.tv_chord_strings);
-            btnPlayAudio = itemView.findViewById(R.id.btn_play_audio);
+            chordView     = itemView.findViewById(R.id.cv_chord_diagram);
+            tvChordName   = itemView.findViewById(R.id.tv_chord_name);
+            tvChordStrings= itemView.findViewById(R.id.tv_chord_strings);
+            btnPlayAudio  = itemView.findViewById(R.id.btn_play_audio);
         }
     }
 }

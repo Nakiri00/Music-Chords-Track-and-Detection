@@ -1,134 +1,80 @@
 package com.example.musicchords;
 
 import android.os.Bundle;
-import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-
+import android.widget.ProgressBar;
+import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
+import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import com.google.gson.Gson;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-
 public class LibraryFragment extends Fragment {
 
+    private LibraryViewModel viewModel;
+    private ChordGroupAdapter adapter;
     private RecyclerView rvChords;
-    private ChordAdapter chordAdapter;
-    private List<Chord> chordList;
-
-    public static class GuitarData {
-        public Map<String, List<ChordInfo>> chords;
-    }
-
-    public static class ChordInfo {
-        public String key;
-        public String suffix;
-        public List<Position> positions;
-    }
-
-    public static class Position {
-        public List<Integer> frets; // Menggunakan List<Integer> karena datanya [-1, 3, 2, 0, 1, 0]
-    }
-
-    public LibraryFragment() { }
+    private ProgressBar progressBar;
 
     @Override
-    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+    public View onCreateView(
+        LayoutInflater inflater,
+        ViewGroup container,
+        Bundle savedInstanceState
+    ) {
         return inflater.inflate(R.layout.fragment_library, container, false);
     }
 
     @Override
-    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
+    public void onViewCreated(
+        @NonNull View view,
+        @Nullable Bundle savedInstanceState
+    ) {
         super.onViewCreated(view, savedInstanceState);
+        viewModel = new ViewModelProvider(this).get(LibraryViewModel.class);
 
         rvChords = view.findViewById(R.id.rv_chords);
+        progressBar = view.findViewById(R.id.progress_bar_library);
+
+        // Setup RecyclerView
         rvChords.setLayoutManager(new LinearLayoutManager(getContext()));
+        adapter = new ChordGroupAdapter();
+        adapter.setOnPlayListener(group -> viewModel.playAudio(group));
+        rvChords.setAdapter(adapter);
 
-        chordList = new ArrayList<>();
-
-        // Mulai proses baca JSON
-        loadChordsFromJson();
-
-        chordAdapter = new ChordAdapter(getContext(), chordList);
-        rvChords.setAdapter(chordAdapter);
+        setupObservers();
+        viewModel.loadChords(); // idempotent
     }
 
-    private void loadChordsFromJson() {
-        try {
-            // Membuka file dari folder assets
-            InputStream is = getContext().getAssets().open("guitar.json");
-            int size = is.available();
-            byte[] buffer = new byte[size];
-            is.read(buffer);
-            is.close();
-            String jsonString = new String(buffer, "UTF-8");
+    private void setupObservers() {
+        viewModel
+            .getIsLoading()
+            .observe(getViewLifecycleOwner(), loading -> {
+                progressBar.setVisibility(loading ? View.VISIBLE : View.GONE);
+                rvChords.setVisibility(loading ? View.GONE : View.VISIBLE);
+            });
 
-            // Mengubah JSON menjadi Objek Java
-            Gson gson = new Gson();
-            GuitarData guitarData = gson.fromJson(jsonString, GuitarData.class);
+        viewModel
+            .getChordGroups()
+            .observe(getViewLifecycleOwner(), groups ->
+                adapter.updateData(groups)
+            );
 
-            if (guitarData != null && guitarData.chords != null) {
-                // Kita ambil urutan nada dasar yang umum (C sampai B)
-                String[] targetKeys = {"C","C#","D","Eb","E","F","F#","G","Ab","A","Bb","B"};
-
-                for (String key : targetKeys) {
-                    List<ChordInfo> chordListInfo = guitarData.chords.get(key);
-                    if (chordListInfo != null) {
-                        for (ChordInfo info : chordListInfo) {
-
-                            if (info.suffix.equals("major") || info.suffix.equals("minor")) {
-
-                                // Gabungkan nama kunci (contoh: "C" + " " + "major" = "C major")
-                                String chordName = info.key + " " + info.suffix;
-
-                                // Ambil posisi senar pertama yang paling mudah dimainkan
-                                List<Integer> frets = info.positions.get(0).frets;
-
-                                // Ubah array [-1, 3, 2, 0, 1, 0] menjadi teks "X 3 2 0 1 0"
-                                StringBuilder fretStr = new StringBuilder();
-                                for (int fretAngka : frets) {
-                                    if (fretAngka == -1) {
-                                        fretStr.append("X "); // -1 artinya senar tidak dipetik
-                                    } else {
-                                        fretStr.append(fretAngka).append(" ");
-                                    }
-                                }
-
-                                String keyClean = info.key.replace("#", "sharp").toLowerCase();
-                                String suffixClean = info.suffix.toLowerCase();
-
-                                String audioFileName = "chord_" + keyClean + "_" + suffixClean;
-
-                                int audioResId = getContext().getResources().getIdentifier(
-                                        audioFileName,
-                                        "raw",
-                                        getContext().getPackageName()
-                                );
-
-                                // Masukkan ke dalam daftar tampilan
-                                chordList.add(new Chord(
-                                        chordName,
-                                        fretStr.toString().trim(),
-                                        R.drawable.ic_launcher_background, // Ikon bawaan sementara
-                                        audioResId// Audio kosong sementara
-                                ));
-                            }
-                        }
-                    }
+        viewModel
+            .getToastMessage()
+            .observe(getViewLifecycleOwner(), msg -> {
+                if (msg != null && !msg.isEmpty() && isAdded()) {
+                    Toast.makeText(
+                        requireContext(),
+                        msg,
+                        Toast.LENGTH_SHORT
+                    ).show();
+                    viewModel.clearToastMessage();
                 }
-            }
-        } catch (IOException e) {
-            Log.e("JSON_ERROR", "Gagal membaca file JSON", e);
-        }
+            });
     }
 }
