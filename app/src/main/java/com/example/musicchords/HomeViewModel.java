@@ -78,6 +78,16 @@ public class HomeViewModel extends AndroidViewModel {
     private final MutableLiveData<Boolean> fileLoaded = new MutableLiveData<>(
         false
     );
+    private final MutableLiveData<Integer> chordProgress = new MutableLiveData<>(0);
+
+    public LiveData<Integer> getChordProgress() {
+        return chordProgress;
+    }
+    private final MutableLiveData<List<String>> upcomingChords = new MutableLiveData<>(new ArrayList<>());
+
+    public LiveData<List<String>> getUpcomingChords() {
+        return upcomingChords;
+    }
 
     // Internal state
     private String audioTitle = "";
@@ -351,6 +361,28 @@ public class HomeViewModel extends AndroidViewModel {
         }
     }
 
+    public void calculateChordProgress(long currentPlaybackPositionMs, List<ChordTimestamp> chords, int currentIndex) {
+        if (chords == null || chords.isEmpty() || currentIndex < 0 || currentIndex >= chords.size()) {
+            return;
+        }
+        ChordTimestamp currentChord = chords.get(currentIndex);
+        if (currentIndex + 1 < chords.size()) {
+            ChordTimestamp nextChord = chords.get(currentIndex + 1);
+            long currentChordTimeMs = (long) (currentChord.getTimeSeconds() * 1000);
+            long nextChordTimeMs = (long) (nextChord.getTimeSeconds() * 1000);
+
+            long durationMs = nextChordTimeMs - currentChordTimeMs;
+            long elapsedMs = currentPlaybackPositionMs - currentChordTimeMs;
+            if (durationMs > 0) {
+                int progress = (int) (((float) elapsedMs / durationMs) * 100);
+                progress = Math.max(0, Math.min(100, progress));
+                chordProgress.postValue(progress);
+            }
+        } else {
+            chordProgress.postValue(100);
+        }
+    }
+
     public void playAudio() {
         if (mediaPlayer != null) {
             mediaPlayer.start();
@@ -409,6 +441,19 @@ public class HomeViewModel extends AndroidViewModel {
                 if (mediaPlayer != null && mediaPlayer.isPlaying()) {
                     double sec = mediaPlayer.getCurrentPosition() / 1000.0;
                     currentChordDisplay.postValue(getCurrentChordAt(sec));
+                    long currentPositionMs = mediaPlayer.getCurrentPosition();
+                    int activeIndex = getCurrentChordIndexAt(sec);
+                    calculateChordProgress(currentPositionMs, detectedChords, activeIndex);
+                    List<String> nextChordsList = new ArrayList<>();
+                    if (activeIndex != -1) {
+                        // Ambil maksimal 4 chord berikutnya
+                        for (int i = activeIndex + 1; i <= activeIndex + 4; i++) {
+                            if (i < detectedChords.size()) {
+                                nextChordsList.add(detectedChords.get(i).getChordName());
+                            }
+                        }
+                    }
+                    upcomingChords.postValue(nextChordsList);
                     chordHandler.postDelayed(this, 100);
                 }
             }
@@ -430,10 +475,22 @@ public class HomeViewModel extends AndroidViewModel {
         return result;
     }
 
+    private int getCurrentChordIndexAt(double currentTime) {
+        int currentIndex = -1;
+        for (int i = 0; i < detectedChords.size(); i++) {
+            if (currentTime >= detectedChords.get(i).getTimeSeconds()) {
+                currentIndex = i;
+            } else {
+                break;
+            }
+        }
+        return currentIndex;
+    }
+
     // ─── Audio Analysis ─────────────────────────────────────────────────────
     public void analyzeChords(String audioPath, String title) {
         if (Boolean.TRUE.equals(isAnalyzing.getValue())) return;
-        isAnalyzing.setValue(true); // ← setValue, bukan postValue (sudah di main thread)
+        isAnalyzing.setValue(true); //
         currentChordDisplay.setValue("Analyzing Chords...");
         detectedChords.clear();
 

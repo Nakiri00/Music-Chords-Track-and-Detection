@@ -3,6 +3,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     tools:context=".HomeFragment">
 
     <ScrollView
@@ -25,69 +26,84 @@
                 android:layout_marginTop="16dp"
                 android:layout_marginBottom="8dp"/>
 
-            <EditText
-                android:id="@+id/url_input"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="Masukan URL YouTube Music"
-                android:inputType="textUri"
-                android:minHeight="48dp" />
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:cardCornerRadius="16dp"
+                    app:cardElevation="0dp"
+                    app:cardBackgroundColor="@android:color/transparent"
+                    app:strokeWidth="1dp"
+                    >
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="30px">
+                        <EditText
+                            android:id="@+id/url_input"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:hint="Masukan URL YouTube Music"
+                            android:inputType="textUri"
+                            android:minHeight="48dp" />
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal">
+                            <Button
+                                android:id="@+id/button_convert"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:layout_marginEnd="8dp"
+                                android:text="Convert dari URL" />
 
-            <Button
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:id="@+id/button_convert"
-                android:text="Convert dari URL"
-                android:layout_marginTop="8dp"/>
+                            <Button
+                                android:id="@+id/btn_pick_file"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="Pilih File Lokal" />
+                        </LinearLayout>
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="ATAU"
-                android:layout_gravity="center"
-                android:layout_margin="8dp"
-                android:textStyle="bold"/>
+                        <TextView
+                            android:id="@+id/textview_result"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:textAlignment="center"
+                            android:layout_marginTop="8dp"
+                            android:text="Siap memproses audio" />
 
-            <Button
-                android:id="@+id/btn_pick_file"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Pilih File Lokal"
-                android:layout_marginBottom="16dp"/>
+                        <ProgressBar
+                            android:id="@+id/progress_bar"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center"
+                            android:layout_marginTop="8dp"
+                            android:visibility="gone"/>
 
-            <TextView
-                android:id="@+id/textview_result"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textAlignment="center"
-                android:text="Siap memproses audio" />
+                        <Button
+                            android:id="@+id/button_download"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center_horizontal"
+                            android:layout_marginTop="8dp"
+                            android:text="Download Audio"
+                            android:visibility="gone"
+                            tools:visibility="visible" />
 
-            <ProgressBar
-                android:id="@+id/progress_bar"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center"
-                android:layout_marginTop="8dp"
-                android:visibility="gone"/>
+                        <Button
+                            android:id="@+id/button_detect_pitch"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="Analisis &amp; Deteksi Chord"
+                            android:visibility="gone"
+                            tools:visibility="visible"/>
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
 
-            <Button
-                android:id="@+id/button_download"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_horizontal"
-                android:layout_marginTop="8dp"
-                android:text="Download Audio"
-                android:visibility="gone"
-                tools:visibility="visible" />
 
-            <Button
-                android:id="@+id/button_detect_pitch"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:text="Analisis &amp; Deteksi Chord"
-                android:visibility="gone"
-                tools:visibility="visible"/>
 
             <LinearLayout
                 android:id="@+id/layout_audio_player"
@@ -120,6 +136,29 @@
                     android:textStyle="bold"
                     android:gravity="center"
                     android:layout_marginBottom="16dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Selanjutnya:"
+                    android:layout_marginHorizontal="16dp"
+                    android:textStyle="bold" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rvUpcomingChords"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginHorizontal="16dp"
+                    android:layout_marginBottom="16dp"
+                    android:orientation="horizontal" />
+
+                <ProgressBar
+                    android:id="@+id/chordProgressBar"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="100"
+                    android:progress="0" />
 
                 <LinearLayout
                     android:layout_width="match_parent"

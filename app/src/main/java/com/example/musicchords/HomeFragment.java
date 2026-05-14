@@ -6,7 +6,9 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.res.ColorStateList;
 import android.database.Cursor;
+import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
 import android.view.LayoutInflater;
@@ -27,6 +29,9 @@ import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+
 import java.io.File;
 
 public class HomeFragment extends Fragment {
@@ -47,6 +52,9 @@ public class HomeFragment extends Fragment {
     private TextView tvDuration;
     private Button buttonPickFile;
     private LinearLayout layoutAudioPlayer;
+    private ProgressBar progressBarChord;
+    private UpcomingChordAdapter upcomingAdapter;
+    private RecyclerView rvUpcomingChords;
 
     private long downloadID = -1;
     private boolean receiverRegistered = false;
@@ -121,12 +129,12 @@ public class HomeFragment extends Fragment {
     }
 
     @Override
-    public View onCreateView(
-        LayoutInflater inflater,
-        ViewGroup container,
-        Bundle savedInstanceState
-    ) {
-        return inflater.inflate(R.layout.fragment_home, container, false);
+    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        View view = inflater.inflate(R.layout.fragment_home, container, false);
+
+        progressBarChord = view.findViewById(R.id.chordProgressBar);
+
+        return view;
     }
 
     @Override
@@ -136,7 +144,6 @@ public class HomeFragment extends Fragment {
     ) {
         super.onViewCreated(view, savedInstanceState);
         viewModel = new ViewModelProvider(this).get(HomeViewModel.class);
-
         buttonConvert = view.findViewById(R.id.button_convert);
         resultTextView = view.findViewById(R.id.textview_result);
         loadingIndicator = view.findViewById(R.id.progress_bar);
@@ -151,6 +158,10 @@ public class HomeFragment extends Fragment {
         buttonPickFile = view.findViewById(R.id.btn_pick_file);
         layoutAudioPlayer = view.findViewById(R.id.layout_audio_player);
         tvPlayingTitle = view.findViewById(R.id.tv_playing_title);
+        rvUpcomingChords = view.findViewById(R.id.rvUpcomingChords);
+        rvUpcomingChords.setLayoutManager(new LinearLayoutManager(getContext(), LinearLayoutManager.HORIZONTAL, false));
+        upcomingAdapter = new UpcomingChordAdapter();
+        rvUpcomingChords.setAdapter(upcomingAdapter);
 
         // Initial state
         buttonDetectPitch.setEnabled(false);
@@ -164,6 +175,22 @@ public class HomeFragment extends Fragment {
         if (getArguments() != null) {
             loadHistoryData(getArguments());
         }
+        viewModel.getChordProgress().observe(getViewLifecycleOwner(), progress -> {
+            progressBarChord.setProgress(progress);
+            if (progress > 85) {
+                progressBarChord.setProgressTintList(ColorStateList.valueOf(Color.parseColor("#FF9800")));
+            } else {
+                progressBarChord.setProgressTintList(ColorStateList.valueOf(Color.parseColor("#4CAF50")));
+            }
+        });
+        viewModel.getUpcomingChords().observe(getViewLifecycleOwner(), nextChords -> {
+            if (upcomingAdapter != null) {
+                upcomingAdapter.updateChords(nextChords);
+
+                // Agar posisi list selalu berada di awal saat data berubah
+                rvUpcomingChords.scrollToPosition(0);
+            }
+        });
     }
 
     private void setupClickListeners() {
@@ -197,6 +224,7 @@ public class HomeFragment extends Fragment {
                     Toast.LENGTH_SHORT
                 ).show();
                 downloadID = viewModel.downloadAudio(link, title);
+                buttonDownload.setVisibility(View.GONE);
             } else {
                 Toast.makeText(
                     getContext(),
@@ -258,7 +286,12 @@ public class HomeFragment extends Fragment {
         viewModel
             .getStatusText()
             .observe(getViewLifecycleOwner(), text -> {
-                if (text != null) resultTextView.setText(text);
+                if (text != null) {
+                    resultTextView.setText(text);
+                    if (text.equals("Analisis selesai.") || text.equals("Data dimuat dari History.")) {
+                        buttonDetectPitch.setVisibility(View.GONE);
+                    }
+                }
             });
 
         viewModel
@@ -334,8 +367,13 @@ public class HomeFragment extends Fragment {
             .getFileLoaded()
             .observe(getViewLifecycleOwner(), loaded -> {
                 if (Boolean.TRUE.equals(loaded)) {
-                    buttonDetectPitch.setVisibility(View.VISIBLE);
-                    buttonDetectPitch.setEnabled(true);
+                    String currentStatus = viewModel.getStatusText().getValue();
+                    if (currentStatus != null && (currentStatus.equals("Data dimuat dari History.") || currentStatus.equals("Analisis selesai."))) {
+                        buttonDetectPitch.setVisibility(View.GONE);
+                    } else {
+                        buttonDetectPitch.setVisibility(View.VISIBLE);
+                        buttonDetectPitch.setEnabled(true);
+                    }
                     buttonDownload.setVisibility(View.GONE);
                 }
             });
@@ -374,7 +412,7 @@ public class HomeFragment extends Fragment {
         if (audioPath != null) {
             if (new File(audioPath).exists()) {
                 viewModel.loadHistoryData(audioPath, title, savedChordData);
-                buttonDetectPitch.setVisibility(View.VISIBLE);
+                buttonDetectPitch.setVisibility(View.GONE);
                 buttonDetectPitch.setEnabled(true);
                 buttonDownload.setVisibility(View.GONE);
             } else {
