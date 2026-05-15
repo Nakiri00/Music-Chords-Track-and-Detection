@@ -186,4 +186,30 @@ public class HistoryFragment extends Fragment {
                 }
             });
     }
+
+    public void updateTexts() {
+        if (getView() == null) return;
+
+        // Ambil referensi komponen jika Anda tidak menyimpannya sebagai variabel global
+        com.google.android.material.textfield.TextInputLayout searchLayout = getView().findViewById(R.id.layout_search);
+        TextView tvEmpty = getView().findViewById(R.id.tv_empty);
+        TextView tvSortBy = getView().findViewById(R.id.tv_sort_by); // Asumsikan Anda memberi ID tv_sort_by pada TextView "Sort by:"
+        com.google.android.material.chip.Chip chipDate = getView().findViewById(R.id.chip_sort_date);
+        com.google.android.material.chip.Chip chipTitle = getView().findViewById(R.id.chip_sort_title);
+        Button btnPrev = getView().findViewById(R.id.btn_prev_page);
+        Button btnNext = getView().findViewById(R.id.btn_next_page);
+        if (adapter != null) {
+            adapter.notifyDataSetChanged();
+        }
+
+
+        // Update teks-teksnya
+        if (searchLayout != null) searchLayout.setHint(getString(R.string.hint_search_history));
+        if (tvEmpty != null) tvEmpty.setText(getString(R.string.text_empty_history));
+        if (tvSortBy != null) tvSortBy.setText(getString(R.string.text_sort_by));
+        if (chipDate != null) chipDate.setText(getString(R.string.chip_sort_newest));
+        if (chipTitle != null) chipTitle.setText(getString(R.string.chip_sort_title_az));
+        if (btnPrev != null) btnPrev.setText(getString(R.string.btn_prev_page));
+        if (btnNext != null) btnNext.setText(getString(R.string.btn_next_page));
+    }
 }

@@ -89,9 +89,10 @@
             />
 
             <TextView
+                android:id="@+id/tv_show_result"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Lihat Hasil >"
+                android:text="@string/show_result"
                 android:textSize="12sp"
                 android:textColor="@android:color/holo_blue_dark"
                 android:textStyle="italic"

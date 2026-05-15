@@ -7,19 +7,6 @@
     android:background="?attr/colorSurface"
 >
 
-    <!-- Title bar -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Chord Library"
-        android:textSize="22sp"
-        android:textStyle="bold"
-        android:paddingHorizontal="16dp"
-        android:paddingTop="16dp"
-        android:paddingBottom="12dp"
-        android:textColor="?attr/colorOnSurface"
-    />
-
     <!-- Loading indicator -->
     <ProgressBar
         android:id="@+id/progress_bar_library"

@@ -111,6 +111,8 @@ public class HistoryAdapter
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         ChordHistory item = list.get(position);
         String docId = documentIds.get(position);
+        String textShowResult = holder.itemView.getContext().getString(R.string.show_result);
+        holder.tvShowResult.setText(textShowResult);
 
         holder.tvTitle.setText(
             item.getTitle() != null ? item.getTitle() : "Tanpa Judul"
@@ -140,7 +142,7 @@ public class HistoryAdapter
 
     static class ViewHolder extends RecyclerView.ViewHolder {
 
-        TextView tvTitle, tvDate;
+        TextView tvTitle, tvDate, tvShowResult;
         ImageButton btnDelete;
 
         public ViewHolder(@NonNull View itemView) {
@@ -148,6 +150,7 @@ public class HistoryAdapter
             tvTitle = itemView.findViewById(R.id.tv_history_title);
             tvDate = itemView.findViewById(R.id.tv_history_date);
             btnDelete = itemView.findViewById(R.id.btn_delete_history);
+            tvShowResult = itemView.findViewById(R.id.tv_show_result);
         }
     }
 }

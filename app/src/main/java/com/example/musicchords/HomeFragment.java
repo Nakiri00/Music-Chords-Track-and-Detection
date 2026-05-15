@@ -434,4 +434,27 @@ public class HomeFragment extends Fragment {
             receiverRegistered = false;
         }
     }
+
+    // Panggil metode ini dari MainActivity saat bahasa diganti
+    public void updateTexts() {
+        if (getView() == null) return;
+
+        // Update semua elemen UI yang punya teks berdasarkan strings.xml
+
+        // Contoh untuk EditText (Hint)
+        if (editText != null) editText.setHint(getString(R.string.hint_youtube_url));
+
+        // Contoh untuk Button
+        if (buttonConvert != null) buttonConvert.setText(getString(R.string.btn_convert_url));
+        if (buttonPickFile != null) buttonPickFile.setText(getString(R.string.btn_pick_local_file));
+        if (buttonDownload != null) buttonDownload.setText(getString(R.string.btn_download_audio));
+        if (buttonDetectPitch != null) buttonDetectPitch.setText(getString(R.string.btn_analyze_detect));
+
+        // Contoh untuk TextView biasa
+        TextView tvTitle = getView().findViewById(R.id.tv_playing_title); // atau referensi variabel jika ada
+        // Jika judul lagunya sedang kosong (belum ada lagu), update placeholder-nya
+        if (tvTitle != null && tvTitle.getText().toString().equals("Judul Lagu") || tvTitle.getText().toString().equals("Song Title")) {
+            tvTitle.setText(getString(R.string.placeholder_song_title));
+        }
+    }
 }

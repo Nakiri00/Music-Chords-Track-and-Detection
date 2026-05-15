@@ -1,5 +1,29 @@
 <resources>
-    <string name="app_name">MusicChords</string>
-    <!-- TODO: Remove or change this placeholder text -->
-    <string name="hello_blank_fragment">Hello blank fragment</string>
+    <string name="app_name">Music Chords</string>
+
+    <string name="title_music_chords">Music Chords</string>
+    <string name="hint_youtube_url">Masukan URL YouTube</string>
+    <string name="btn_convert_url">Konversi URL</string>
+    <string name="btn_pick_local_file">Pilih File Lokal</string>
+    <string name="status_ready_process">Siap memproses audio</string>
+    <string name="btn_download_audio">Download Audio</string>
+    <string name="btn_analyze_detect">Analisis &amp; Deteksi Chord</string>
+
+    <string name="placeholder_song_title">Judul Lagu</string>
+    <string name="text_up_next">Selanjutnya:</string>
+
+    <string name="cd_play">Play</string>
+    <string name="cd_pause">Pause</string>
+
+    <string name="title_library">Daftar Chord</string>
+
+    <string name="hint_search_history">Cari riwayat...</string>
+    <string name="text_sort_by">Urutkan berdasarkan:</string>
+    <string name="chip_sort_newest">Terbaru</string>
+    <string name="chip_sort_title_az">Judul A-Z</string>
+    <string name="text_empty_history">Belum ada riwayat</string>
+    <string name="btn_prev_page">&lt; Sebelumnya</string>
+    <string name="btn_next_page">Selanjutnya &gt;</string>
+    <string name="placeholder_page">1 / 1</string>
+    <string name="show_result">Lihat Hasil</string>
 </resources>

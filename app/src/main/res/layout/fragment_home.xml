@@ -17,93 +17,99 @@
             android:orientation="vertical"
             android:paddingBottom="32dp">
 
-            <TextView
-                android:layout_width="wrap_content"
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Music Chords"
-                android:textStyle="bold"
-                android:textSize="20sp"
-                android:layout_marginTop="16dp"
-                android:layout_marginBottom="8dp"/>
+                app:cardCornerRadius="16dp"
+                app:cardElevation="0dp"
+                app:cardBackgroundColor="@android:color/transparent"
+                app:strokeWidth="1dp">
 
-                <com.google.android.material.card.MaterialCardView
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    app:cardCornerRadius="16dp"
-                    app:cardElevation="0dp"
-                    app:cardBackgroundColor="@android:color/transparent"
-                    app:strokeWidth="1dp"
-                    >
+                    android:orientation="vertical"
+                    android:padding="30px">
+
+                    <EditText
+                        android:id="@+id/url_input"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="@string/hint_youtube_url"
+                        android:inputType="textUri"
+                        android:minHeight="48dp"
+                        style="style/widget."/>
+
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:padding="30px">
-                        <EditText
-                            android:id="@+id/url_input"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:hint="Masukan URL YouTube Music"
-                            android:inputType="textUri"
-                            android:minHeight="48dp" />
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:orientation="horizontal">
-                            <Button
-                                android:id="@+id/button_convert"
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:layout_marginEnd="8dp"
-                                android:text="Convert dari URL" />
-
-                            <Button
-                                android:id="@+id/btn_pick_file"
-                                android:layout_width="0dp"
-                                android:layout_height="wrap_content"
-                                android:layout_weight="1"
-                                android:text="Pilih File Lokal" />
-                        </LinearLayout>
-
-                        <TextView
-                            android:id="@+id/textview_result"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:textAlignment="center"
-                            android:layout_marginTop="8dp"
-                            android:text="Siap memproses audio" />
-
-                        <ProgressBar
-                            android:id="@+id/progress_bar"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_gravity="center"
-                            android:layout_marginTop="8dp"
-                            android:visibility="gone"/>
+                        android:orientation="horizontal">
 
                         <Button
-                            android:id="@+id/button_download"
-                            android:layout_width="wrap_content"
+                            android:id="@+id/button_convert"
+                            android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:layout_gravity="center_horizontal"
-                            android:layout_marginTop="8dp"
-                            android:text="Download Audio"
-                            android:visibility="gone"
-                            tools:visibility="visible" />
+                            android:layout_weight="1"
+                            android:layout_marginEnd="8dp"
+                            android:text="@string/btn_convert_url"
+                            app:cornerRadius="10dp"
+                            app:icon="@android:drawable/ic_menu_upload"
+                            style="@style/Widget.Material3.Button.OutlinedButton"/>
 
                         <Button
-                            android:id="@+id/button_detect_pitch"
-                            android:layout_width="match_parent"
+                            android:id="@+id/btn_pick_file"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
-                            android:text="Analisis &amp; Deteksi Chord"
-                            android:visibility="gone"
-                            tools:visibility="visible"/>
+                            android:layout_weight="1"
+                            android:text="@string/btn_pick_local_file"
+                            app:cornerRadius="10dp"
+                            app:icon="@android:drawable/ic_menu_gallery" />
                     </LinearLayout>
-                </com.google.android.material.card.MaterialCardView>
 
+                    <TextView
+                        android:id="@+id/textview_result"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textAlignment="center"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/status_ready_process" />
 
+                    <ProgressBar
+                        android:id="@+id/progress_bar"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:layout_marginTop="8dp"
+                        android:visibility="gone"/>
+
+                    <Button
+                        android:id="@+id/button_download"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center_horizontal"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/btn_download_audio"
+                        android:visibility="gone"
+                        tools:visibility="visible"
+                        app:cornerRadius="10dp"
+                        app:icon="@drawable/baseline_download_24"
+                        style="@style/Widget.Material3.Button.OutlinedButton"/>
+
+                    <Button
+                        android:id="@+id/button_detect_pitch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        app:cornerRadius="10dp"
+                        android:layout_marginTop="4dp"
+                        android:text="@string/btn_analyze_detect"
+                        android:visibility="gone"
+                        tools:visibility="visible"
+                        app:icon="@android:drawable/ic_popup_sync"/>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
 
             <LinearLayout
                 android:id="@+id/layout_audio_player"
@@ -119,7 +125,7 @@
                     android:id="@+id/tv_playing_title"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Judul Lagu"
+                    android:text="@string/placeholder_song_title"
                     android:textSize="18sp"
                     android:textStyle="bold"
                     android:gravity="center"
@@ -140,7 +146,7 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Selanjutnya:"
+                    android:text="@string/text_up_next"
                     android:layout_marginHorizontal="16dp"
                     android:textStyle="bold" />
 
@@ -172,7 +178,7 @@
                         android:layout_height="48dp"
                         android:src="@android:drawable/ic_media_play"
                         android:background="?attr/selectableItemBackgroundBorderless"
-                        android:contentDescription="Play" />
+                        android:contentDescription="@string/cd_play" />
 
                     <ImageButton
                         android:id="@+id/btn_pause"
@@ -181,7 +187,7 @@
                         android:src="@android:drawable/ic_media_pause"
                         android:background="?attr/selectableItemBackgroundBorderless"
                         android:visibility="gone"
-                        android:contentDescription="Pause" />
+                        android:contentDescription="@string/cd_pause" />
 
                     <SeekBar
                         android:id="@+id/seekbar_audio"
