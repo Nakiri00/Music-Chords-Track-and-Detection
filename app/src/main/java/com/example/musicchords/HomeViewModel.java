@@ -1,8 +1,11 @@
 package com.example.musicchords;
 
+import static androidx.core.content.ContextCompat.startActivity;
+
 import android.app.Application;
 import android.app.DownloadManager;
 import android.content.Context;
+import android.content.Intent;
 import android.database.Cursor;
 import android.media.MediaPlayer;
 import android.net.Uri;
@@ -23,6 +26,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+
 
 public class HomeViewModel extends AndroidViewModel {
 
@@ -93,6 +97,8 @@ public class HomeViewModel extends AndroidViewModel {
     private String audioTitle = "";
     private String audioFilePath = null;
     private final List<ChordTimestamp> detectedChords = new ArrayList<>();
+    private final MutableLiveData<List<ChordTimestamp>> detectedChordsList = new MutableLiveData<>(new ArrayList<>());
+
 
     // MediaPlayer & Handlers
     private MediaPlayer mediaPlayer;
@@ -160,6 +166,17 @@ public class HomeViewModel extends AndroidViewModel {
 
     public String getAudioFilePath() {
         return audioFilePath;
+    }
+
+    // Getter untuk diobservasi atau diambil datanya
+    public LiveData<List<ChordTimestamp>> getDetectedChords() {
+        return detectedChordsList;
+    }
+
+    // Setter untuk memasukkan data setelah analisis selesai
+    public void setDetectedChords(List<ChordTimestamp> chords) {
+        // Gunakan postValue karena analisis berjalan di background thread
+        detectedChordsList.postValue(chords);
     }
 
     // ─── YouTube Conversion ─────────────────────────────────────────────────
@@ -493,6 +510,7 @@ public class HomeViewModel extends AndroidViewModel {
         isAnalyzing.setValue(true); //
         currentChordDisplay.setValue("Analyzing Chords...");
         detectedChords.clear();
+        setDetectedChords(new ArrayList<>());
 
         analysisRepository.analyzeChords(
             audioPath,
@@ -517,6 +535,7 @@ public class HomeViewModel extends AndroidViewModel {
                     handler.post(() -> {
                         detectedChords.clear();
                         detectedChords.addAll(results);
+                        setDetectedChords(results);
 
                         isAnalyzing.setValue(false);
                         currentChordDisplay.setValue(
@@ -611,6 +630,7 @@ public class HomeViewModel extends AndroidViewModel {
                 }
             }
         }
+        setDetectedChords(new ArrayList<>(detectedChords));
         currentChordDisplay.setValue(
             count > 0
                 ? "Data Loaded (" + count + " Chords)"
@@ -625,4 +645,5 @@ public class HomeViewModel extends AndroidViewModel {
         handler.removeCallbacksAndMessages(null);
         chordHandler.removeCallbacksAndMessages(null);
     }
+
 }

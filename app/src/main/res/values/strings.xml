@@ -8,6 +8,7 @@
     <string name="status_ready_process">Siap memproses audio</string>
     <string name="btn_download_audio">Download Audio</string>
     <string name="btn_analyze_detect">Analisis &amp; Deteksi Chord</string>
+    <string name="exportChord">Ekspor Chord</string>"
 
     <string name="placeholder_song_title">Judul Lagu</string>
     <string name="text_up_next">Selanjutnya:</string>
