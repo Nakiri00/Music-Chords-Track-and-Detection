@@ -47,6 +47,7 @@ public class AudioAnalysisRepository {
                 int sampleRate = decoded.sampleRate;
 
                 int bufferSize = 8192;
+                // Testing 4096 ke 6144
                 int bufferOverlap = 4096;
 
                 TarsosDSPAudioFormat format = new TarsosDSPAudioFormat(sampleRate, 16, 1, true, false);
@@ -62,6 +63,7 @@ public class AudioAnalysisRepository {
                     hannWindow[i] = (float) (0.5 * (1.0 - Math.cos((2.0 * Math.PI * i) / (bufferSize - 1))));
                 }
 
+                // Testing dari 5 ke 3
                 final int VOTE_WINDOW_SIZE = 5;
                 final ArrayDeque<String> chordWindow = new ArrayDeque<>();
                 final ArrayDeque<Double> timeWindow = new ArrayDeque<>();
@@ -78,6 +80,7 @@ public class AudioAnalysisRepository {
                         double rms = 0;
                         for (float s : audioBuffer) rms += s * s;
                         rms = Math.sqrt(rms / audioBuffer.length);
+                        // 0.008 --> 0.003
                         if (rms < 0.008) {
                             updateVoteWindow("-", timestamp, chordWindow, timeWindow, lastSavedChord, VOTE_WINDOW_SIZE, detectedChords);
                             return true;
@@ -92,13 +95,40 @@ public class AudioAnalysisRepository {
                         // C. FFT
                         fft.forwardTransform(transformBuffer);
                         fft.modulus(transformBuffer, spectrum);
+//                        float top1Amp = 0, top2Amp = 0, top3Amp = 0;
+//                        double f1 = 0, f2 = 0, f3 = 0;
+//
+//                        for (int i = 1; i < spectrum.length - 1; i++) {
+//                            double freq = fft.binToHz(i, sampleRate);
+//                            if (freq >= 80.0 && freq <= 1000.0) {
+//                                // Syarat "Puncak": suaranya harus lebih keras dari frekuensi tetangganya
+//                                if (spectrum[i] > spectrum[i-1] && spectrum[i] > spectrum[i+1]) {
+//                                    float amp = spectrum[i];
+//                                    if (amp > top1Amp) {
+//                                        top3Amp = top2Amp; f3 = f2;
+//                                        top2Amp = top1Amp; f2 = f1;
+//                                        top1Amp = amp; f1 = freq;
+//                                    } else if (amp > top2Amp) {
+//                                        top3Amp = top2Amp; f3 = f2;
+//                                        top2Amp = amp; f2 = freq;
+//                                    } else if (amp > top3Amp) {
+//                                        top3Amp = amp; f3 = freq;
+//                                    }
+//                                }
+//                            }
+//                        }
 
                         // D. NOISE FLOOR
                         float maxAmp = 0;
+//                        double dominantFreq = 0.0;
                         for (int i = 0; i < spectrum.length; i++) {
                             double f = fft.binToHz(i, sampleRate);
-                            if (f >= 80.0 && f <= 4000.0) maxAmp = Math.max(maxAmp, spectrum[i]);
+                            if (f >= 80.0 && f <= 4000.0){
+                                maxAmp = Math.max(maxAmp, spectrum[i]);
+//                                dominantFreq = f;
+                            }
                         }
+                        // 0.03 --> 0.015
                         float noiseFloor = maxAmp * 0.03f;
 
                         // E. ENERGY-WEIGHTED CHROMA
@@ -132,6 +162,7 @@ public class AudioAnalysisRepository {
 
                         int broadClasses = 0;
                         for (float v : chroma) if (v > 0.20f) broadClasses++;
+                        // 7 --> 9
                         if (broadClasses > 7) {
                             updateVoteWindow("-", timestamp, chordWindow, timeWindow, lastSavedChord, VOTE_WINDOW_SIZE, detectedChords);
                             return true;
@@ -146,7 +177,8 @@ public class AudioAnalysisRepository {
                         float totalEnergy = 0;
                         for (float v : chroma) totalEnergy += v;
                         float concentration = (top1 + top2 + top3) / (totalEnergy + 1e-10f);
-                        if (concentration < 0.55f) {
+                        // Testing dari 0.55 ke 0.4
+                        if (concentration < 0.4f) {
                             updateVoteWindow("-", timestamp, chordWindow, timeWindow, lastSavedChord, VOTE_WINDOW_SIZE, detectedChords);
                             return true;
                         }
@@ -154,6 +186,42 @@ public class AudioAnalysisRepository {
                         // H. CHORD MATCHING
                         String currentChord = ChordTemplates.findBestMatchingChord(chroma);
                         if ("N/A".equals(currentChord)) currentChord = "-";
+
+                        if (!currentChord.equals("-")) {
+                            String[] notes = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+                            double[] freqs = {261.63, 277.18, 293.66, 311.13, 329.63, 349.23, 369.99, 392.00, 415.30, 440.00, 466.16, 493.88};
+
+                            // 2. Ambil Nada Dasar (Root) dari nama chord dan normalkan (misal Ab jadi G#)
+                            String rootStr = currentChord.split(" ")[0]
+                                    .replace("Ab", "G#").replace("Eb", "D#")
+                                    .replace("Bb", "A#").replace("Db", "C#").replace("Gb", "F#");
+                            boolean isMinor = currentChord.contains("Minor");
+
+                            // 3. Cari posisi indeks Nada Dasar
+                            int rootIndex = -1;
+                            for (int i = 0; i < notes.length; i++) {
+                                if (notes[i].equals(rootStr)) { rootIndex = i; break; }
+                            }
+
+                            if (rootIndex != -1) {
+                                // 4. Hitung kaidah jarak seminada (semitones)
+                                // Major = Root + 4 semitones | Minor = Root + 3 semitones
+                                int thirdIndex = (rootIndex + (isMinor ? 3 : 4)) % 12;
+                                // Perfect 5th selalu = Root + 7 semitones
+                                int fifthIndex = (rootIndex + 7) % 12;
+
+                                double rootFreq = freqs[rootIndex];
+                                double thirdFreq = freqs[thirdIndex];
+                                double fifthFreq = freqs[fifthIndex];
+
+                                // 5. Jika nada 3rd atau 5th melompat ke oktaf berikutnya (melewati B), kalikan 2
+                                if (thirdIndex < rootIndex) thirdFreq *= 2;
+                                if (fifthIndex < rootIndex) fifthFreq *= 2;
+
+                                Log.d("ChordAnalysis", String.format("Waktu: %.2fs | %s | Kaidah: Root(%.2f Hz), 3rd(%.2f Hz), 5th(%.2f Hz)",
+                                        timestamp, currentChord, rootFreq, thirdFreq, fifthFreq));
+                            }
+                        }
 
                         // I. VOTE WINDOW STABILIZATION
                         updateVoteWindow(currentChord, timestamp, chordWindow, timeWindow, lastSavedChord, VOTE_WINDOW_SIZE, detectedChords);

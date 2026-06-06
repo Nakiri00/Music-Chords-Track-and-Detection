@@ -272,12 +272,26 @@ public class HomeFragment extends Fragment {
             List<ChordTimestamp> currentChords = viewModel.getDetectedChords().getValue();
 
             if (currentChords != null && !currentChords.isEmpty()) {
-                String[] options = {"Export sebagai PDF", "Export sebagai TXT"};
+                // Tambahkan opsi MIDI di sini
+                String[] options = {"Export sebagai PDF", "Export sebagai TXT", "Export sebagai MIDI"};
+
                 new android.app.AlertDialog.Builder(getContext())
                         .setTitle("Pilih Format")
                         .setItems(options, (dialog, which) -> {
-                            boolean isPdf = (which == 0);
-                            exportToFile(currentChords, viewModel.getAudioTitle(), isPdf);
+                            if (which == 0) {
+                                exportToFile(currentChords, viewModel.getAudioTitle(), true); // PDF
+                            } else if (which == 1) {
+                                exportToFile(currentChords, viewModel.getAudioTitle(), false); // TXT
+                            } else if (which == 2) {
+                                // Panggil MidiExportHelper untuk MIDI
+                                File midiFile = MidiExportHelper.exportChordsToMidi(requireContext(), currentChords, "MIDI_" + viewModel.getAudioTitle().replaceAll("[\\\\/:*?\"<>|]", "_"));
+
+                                if (midiFile != null) {
+                                    Toast.makeText(getContext(), "Berhasil! File MIDI tersimpan di folder Music", Toast.LENGTH_LONG).show();
+                                } else {
+                                    Toast.makeText(getContext(), "Gagal membuat file MIDI", Toast.LENGTH_SHORT).show();
+                                }
+                            }
                         })
                         .show();
             } else {
