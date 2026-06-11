@@ -173,6 +173,74 @@ public class HomeViewModel extends AndroidViewModel {
         return detectedChordsList;
     }
 
+    private List<ChordTimestamp> postProcess(List<ChordTimestamp> raw) {
+        if (raw == null || raw.size() < 2) return raw;
+
+        // Tahap 1: Hapus duplikat berurutan agar bersih
+        List<ChordTimestamp> cleanedRaw = new ArrayList<>();
+        for (ChordTimestamp curr : raw) {
+            if (!cleanedRaw.isEmpty() && cleanedRaw.get(cleanedRaw.size() - 1).getChordName().equals(curr.getChordName())) {
+                continue;
+            }
+            cleanedRaw.add(curr);
+        }
+
+        List<ChordTimestamp> result = new ArrayList<>();
+        result.add(cleanedRaw.get(0));
+
+        // Tahap 2: Evaluasi durasi (0.4 detik adalah sweet spot untuk lagu pop/rock)
+        final double MIN_DURATION = 0.4;
+
+        for (int i = 1; i < cleanedRaw.size(); i++) {
+            ChordTimestamp prev = result.get(result.size() - 1);
+            ChordTimestamp curr = cleanedRaw.get(i);
+
+            double duration = curr.getTimeSeconds() - prev.getTimeSeconds();
+
+            if (duration < MIN_DURATION && result.size() > 1) {
+                // Chord sebelumnya terlalu singkat, cabut dari hasil
+                result.remove(result.size() - 1);
+
+                if (!result.isEmpty()) {
+                    ChordTimestamp prevPrev = result.get(result.size() - 1);
+                    // Kasus 1: Balik ke chord yang sama (C -> "-" -> C)
+                    if (prevPrev.getChordName().equals(curr.getChordName())) {
+                        continue;
+                    }
+                }
+
+                // Kasus 2: Transisi (C -> F singkat -> G). F dihapus.
+                // Jika curr adalah tanda "-", JANGAN dimasukkan. Biarkan chord sebelumnya memanjang.
+                if (!curr.getChordName().equals("-")) {
+                    result.add(new ChordTimestamp(prev.getTimeSeconds(), curr.getChordName()));
+                }
+            } else {
+                // Pastikan tidak ada duplikat setelah penggabungan
+                if (!curr.getChordName().equals(prev.getChordName())) {
+                    result.add(curr);
+                }
+            }
+        }
+
+        // Tahap 3: Pembersihan Akhir (Hapus tanda "-" jika durasinya hanya numpang lewat di akhir proses)
+        List<ChordTimestamp> finalResult = new ArrayList<>();
+        for (int i = 0; i < result.size(); i++) {
+            if (result.get(i).getChordName().equals("-")) {
+                // Cek durasi tanda "-" ini. Jika kurang dari 1 detik, abaikan saja.
+                double duration = (i < result.size() - 1)
+                        ? result.get(i+1).getTimeSeconds() - result.get(i).getTimeSeconds()
+                        : 0;
+                if (duration > 1.0) {
+                    finalResult.add(result.get(i)); // Hanya pertahankan "-" jika memang lagunya berhenti lama
+                }
+            } else {
+                finalResult.add(result.get(i));
+            }
+        }
+
+        return finalResult;
+    }
+
     // Setter untuk memasukkan data setelah analisis selesai
     public void setDetectedChords(List<ChordTimestamp> chords) {
         // Gunakan postValue karena analisis berjalan di background thread
@@ -507,78 +575,112 @@ public class HomeViewModel extends AndroidViewModel {
     // ─── Audio Analysis ─────────────────────────────────────────────────────
     public void analyzeChords(String audioPath, String title) {
         if (Boolean.TRUE.equals(isAnalyzing.getValue())) return;
-        isAnalyzing.setValue(true); //
-        currentChordDisplay.setValue("Analyzing Chords...");
+        isAnalyzing.setValue(true);
+
+        // Update UI untuk memberitahu user bahwa AI sedang bekerja
+        currentChordDisplay.setValue("Memisahkan vokal & drum (AI)...");
+        statusText.setValue("Sedang membersihkan audio via Server...");
+
         detectedChords.clear();
         setDetectedChords(new ArrayList<>());
 
-        analysisRepository.analyzeChords(
-            audioPath,
-            new AudioAnalysisRepository.AnalysisCallback() {
-                @Override
-                public void onComplete(List<ChordTimestamp> results) {
-                    StringBuilder sb = new StringBuilder();
-                    sb.append(title != null ? title : "Audio").append("\n");
-                    for (ChordTimestamp item : results) {
-                        sb.append(
-                            String.format(
-                                java.util.Locale.US,
-                                "[%02d:%02d] %s\n",
-                                (int) (item.getTimeSeconds() / 60),
-                                (int) (item.getTimeSeconds() % 60),
-                                item.getChordName()
-                            )
-                        );
-                    }
-                    String fullResult = sb.toString();
+        // Ambil context dari AndroidViewModel
+        Context context = getApplication().getApplicationContext();
+        SourceSeparationHelper separatorHelper = new SourceSeparationHelper();
 
-                    handler.post(() -> {
-                        detectedChords.clear();
-                        detectedChords.addAll(results);
-                        setDetectedChords(results);
+        separatorHelper.separateAudio(context, audioPath, new SourceSeparationHelper.SeparationCallback() {
+            @Override
+            public void onSuccess(String separatedAudioPath) {
+                handler.post(() -> {
+                    currentChordDisplay.setValue("Menganalisis Chords...");
+                    statusText.setValue("Selesai. Menganalisis...");
+                });
 
-                        isAnalyzing.setValue(false);
-                        currentChordDisplay.setValue(
-                            results.isEmpty()
-                                ? "Tidak ada chord terdeteksi."
-                                : "Analisis Selesai"
-                        );
-                        statusText.setValue("Analisis selesai.");
-
-                        historyRepository.saveOrUpdateHistory(
-                            title,
-                            audioPath,
-                            fullResult,
-                            new HistoryRepository.OnSaveListener() {
-                                @Override
-                                public void onSuccess(boolean isUpdate) {
-                                    Log.d(
-                                        TAG,
-                                        "History saved, isUpdate=" + isUpdate
-                                    );
-                                }
-
-                                @Override
-                                public void onError(Exception e) {
-                                    Log.e(TAG, "Failed to save history", e);
-                                }
-                            }
-                        );
-                    });
-                }
-
-                @Override
-                public void onError(Exception e) {
-                    Log.e(TAG, "Analysis error", e);
-                    handler.post(() -> {
-                        isAnalyzing.setValue(false);
-                        toastMessage.setValue(
-                            "Gagal menganalisis audio: " + e.getMessage()
-                        );
-                        currentChordDisplay.setValue("-");
-                    });
-                }
+                executeDspAnalysis(separatedAudioPath, title, audioPath);
             }
+
+            @Override
+            public void onError(Exception e) {
+                Log.e(TAG, "Server Gagal, menggunakan file asli", e);
+                handler.post(() -> {
+                    toastMessage.setValue("Server AI terputus, memakai audio asli.");
+                    currentChordDisplay.setValue("Menganalisis Chords...");
+                    statusText.setValue("Menganalisis (Mode Offline)...");
+                });
+
+                executeDspAnalysis(audioPath, title, audioPath);
+            }
+        });
+    }
+
+    private void executeDspAnalysis(String fileToAnalyze, String title, String originalAudioPath) {
+        analysisRepository.analyzeChords(
+                fileToAnalyze,
+                new AudioAnalysisRepository.AnalysisCallback() {
+                    @Override
+                    public void onComplete(List<ChordTimestamp> results) {
+                        StringBuilder sb = new StringBuilder();
+                        sb.append(title != null ? title : "Audio").append("\n");
+                        for (ChordTimestamp item : results) {
+                            sb.append(
+                                    String.format(
+                                            java.util.Locale.US,
+                                            "[%02d:%02d] %s\n",
+                                            (int) (item.getTimeSeconds() / 60),
+                                            (int) (item.getTimeSeconds() % 60),
+                                            item.getChordName()
+                                    )
+                            );
+                        }
+                        String fullResult = sb.toString();
+
+                        handler.post(() -> {
+                            List<ChordTimestamp> postProcessed = postProcess(results);
+                            detectedChords.clear();
+                            detectedChords.addAll(postProcessed);
+                            setDetectedChords(postProcessed);
+
+                            isAnalyzing.setValue(false);
+                            currentChordDisplay.setValue(
+                                    results.isEmpty()
+                                            ? "Tidak ada chord terdeteksi."
+                                            : "Analisis Selesai"
+                            );
+                            statusText.setValue("Analisis selesai.");
+
+                            // Simpan history menggunakan path audio asli (agar saat di-play, suaranya tetap normal pakai drum/vokal)
+                            historyRepository.saveOrUpdateHistory(
+                                    title,
+                                    originalAudioPath,
+                                    fullResult,
+                                    new HistoryRepository.OnSaveListener() {
+                                        @Override
+                                        public void onSuccess(boolean isUpdate) {
+                                            Log.d(TAG, "History saved, isUpdate=" + isUpdate);
+                                        }
+
+                                        @Override
+                                        public void onError(Exception e) {
+                                            Log.e(TAG, "Failed to save history", e);
+                                        }
+                                    }
+                            );
+                        });
+                    }
+
+                    @Override
+                    public void onError(Exception e) {
+                        Log.e(TAG, "Analysis error", e);
+                        handler.post(() -> {
+                            isAnalyzing.setValue(false);
+                            toastMessage.setValue(
+                                    "Gagal menganalisis audio: " + e.getMessage()
+                            );
+                            currentChordDisplay.setValue("-");
+                            statusText.setValue("Analisis gagal.");
+                        });
+                    }
+                }
         );
     }
 

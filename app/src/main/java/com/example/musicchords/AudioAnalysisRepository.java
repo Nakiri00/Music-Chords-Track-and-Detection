@@ -36,10 +36,14 @@ public class AudioAnalysisRepository {
                     callback.onError(new Exception("File not found: " + audioPath));
                     return;
                 }
-
+                File file = new File(audioPath);
+                Log.d("DEBUG", "Exists: " + file.exists());
+                Log.d("DEBUG", "Size: " + file.length());
+                Log.d("DEBUG", "Can Read: " + file.canRead());
                 AudioData decoded = decodeAudio(audioPath);
                 if (decoded == null) {
                     callback.onError(new Exception("Failed to decode audio"));
+
                     return;
                 }
 
@@ -48,7 +52,7 @@ public class AudioAnalysisRepository {
 
                 int bufferSize = 8192;
                 // Testing 4096 ke 6144
-                int bufferOverlap = 4096;
+                int bufferOverlap = 6144;
 
                 TarsosDSPAudioFormat format = new TarsosDSPAudioFormat(sampleRate, 16, 1, true, false);
                 UniversalAudioInputStream inputStream = new UniversalAudioInputStream(
@@ -64,11 +68,13 @@ public class AudioAnalysisRepository {
                 }
 
                 // Testing dari 5 ke 3
-                final int VOTE_WINDOW_SIZE = 5;
+                final int VOTE_WINDOW_SIZE = 7;
                 final ArrayDeque<String> chordWindow = new ArrayDeque<>();
                 final ArrayDeque<Double> timeWindow = new ArrayDeque<>();
                 final String[] lastSavedChord = {""};
                 final List<ChordTimestamp> detectedChords = new ArrayList<>();
+                final ArrayDeque<float[]> chromaTemporalWindow = new ArrayDeque<>();
+                final int CHROMA_SMOOTHING_FRAMES = 4;
 
                 AudioProcessor chordProcessor = new AudioProcessor() {
                     @Override
@@ -81,7 +87,7 @@ public class AudioAnalysisRepository {
                         for (float s : audioBuffer) rms += s * s;
                         rms = Math.sqrt(rms / audioBuffer.length);
                         // 0.008 --> 0.003
-                        if (rms < 0.008) {
+                        if (rms < 0.003) {
                             updateVoteWindow("-", timestamp, chordWindow, timeWindow, lastSavedChord, VOTE_WINDOW_SIZE, detectedChords);
                             return true;
                         }
@@ -118,73 +124,90 @@ public class AudioAnalysisRepository {
 //                            }
 //                        }
 
-                        // D. NOISE FLOOR
-                        float maxAmp = 0;
-//                        double dominantFreq = 0.0;
+                        // D. DYNAMIC NOISE FLOOR
+                        float sumAmp = 0;
+                        int count = 0;
                         for (int i = 0; i < spectrum.length; i++) {
                             double f = fft.binToHz(i, sampleRate);
-                            if (f >= 80.0 && f <= 4000.0){
-                                maxAmp = Math.max(maxAmp, spectrum[i]);
-//                                dominantFreq = f;
+                            if (f >= 80.0 && f <= 1200.0) {
+                                sumAmp += spectrum[i];
+                                count++;
                             }
                         }
-                        // 0.03 --> 0.015
-                        float noiseFloor = maxAmp * 0.03f;
+                        float meanAmp = count > 0 ? (sumAmp / count) : 0;
+                        float noiseFloor = meanAmp * 1.2f;
 
                         // E. ENERGY-WEIGHTED CHROMA
-                        float[] chroma = new float[12];
+                        float[] currentFrameChroma = new float[12];
+                        final double MIN_FREQ = 80.0;
+                        final double MAX_FREQ = 1200.0;
+
                         for (int i = 1; i < spectrum.length - 1; i++) {
-                            if (spectrum[i] < noiseFloor) continue;
-                            double freq = fft.binToHz(i, sampleRate);
-                            if (freq < 80.0 || freq > 4000.0) continue;
-                            double midiExact = 69.0 + (12.0 * Math.log(freq / 440.0)) / Math.log(2);
-                            int pitchClass = ((int) Math.round(midiExact)) % 12;
-                            if (pitchClass < 0) pitchClass += 12;
-                            chroma[pitchClass] += spectrum[i];
+                            if (spectrum[i] > spectrum[i - 1] && spectrum[i] > spectrum[i + 1]) {
+                                if (spectrum[i] < noiseFloor) continue;
+
+                                double freq = fft.binToHz(i, sampleRate);
+                                if (freq < MIN_FREQ || freq > MAX_FREQ) continue;
+
+                                float logAmp = (float) Math.log10(1.0 + spectrum[i]);
+                                double midiExact = 69.0 + (12.0 * Math.log(freq / 440.0)) / Math.log(2);
+                                int pitchClass = ((int) Math.round(midiExact)) % 12;
+                                if (pitchClass < 0) pitchClass += 12;
+
+                                currentFrameChroma[pitchClass] += logAmp;
+                                currentFrameChroma[(pitchClass + 11) % 12] += logAmp * 0.1f;
+                                currentFrameChroma[(pitchClass + 1) % 12] += logAmp * 0.1f;
+                            }
+                        }
+
+                        chromaTemporalWindow.addLast(currentFrameChroma);
+                        if (chromaTemporalWindow.size() > CHROMA_SMOOTHING_FRAMES) {
+                            chromaTemporalWindow.pollFirst();
+                        }
+
+                        float[] smoothChroma = new float[12];
+                        for (float[] frameC : chromaTemporalWindow) {
+                            for (int i = 0; i < 12; i++) {
+                                smoothChroma[i] += frameC[i]; // Akumulasi energi
+                            }
                         }
 
                         // F. NORMALIZE CHROMA
                         float maxChroma = 0;
-                        for (float v : chroma) maxChroma = Math.max(maxChroma, v);
+                        for (float v : smoothChroma) maxChroma = Math.max(maxChroma, v);
                         if (maxChroma <= 0) {
                             updateVoteWindow("-", timestamp, chordWindow, timeWindow, lastSavedChord, VOTE_WINDOW_SIZE, detectedChords);
                             return true;
                         }
-                        for (int i = 0; i < 12; i++) chroma[i] /= maxChroma;
+                        for (int i = 0; i < 12; i++) smoothChroma[i] /= maxChroma;
 
-                        // G. HARMONIC CONTENT FILTER
-                        int dominantClasses = 0;
-                        for (float v : chroma) if (v > 0.30f) dominantClasses++;
-                        if (dominantClasses < 2) {
-                            updateVoteWindow("-", timestamp, chordWindow, timeWindow, lastSavedChord, VOTE_WINDOW_SIZE, detectedChords);
-                            return true;
-                        }
-
-                        int broadClasses = 0;
-                        for (float v : chroma) if (v > 0.20f) broadClasses++;
-                        // 7 --> 9
-                        if (broadClasses > 7) {
-                            updateVoteWindow("-", timestamp, chordWindow, timeWindow, lastSavedChord, VOTE_WINDOW_SIZE, detectedChords);
-                            return true;
-                        }
-
+                        // H. HARMONIC CONTENT FILTER
                         float top1 = 0, top2 = 0, top3 = 0;
-                        for (float v : chroma) {
+                        for (float v : smoothChroma) {
                             if (v > top1) { top3 = top2; top2 = top1; top1 = v; }
                             else if (v > top2) { top3 = top2; top2 = v; }
                             else if (v > top3) { top3 = v; }
                         }
                         float totalEnergy = 0;
-                        for (float v : chroma) totalEnergy += v;
+                        for (float v : smoothChroma) totalEnergy += v;
                         float concentration = (top1 + top2 + top3) / (totalEnergy + 1e-10f);
-                        // Testing dari 0.55 ke 0.4
-                        if (concentration < 0.4f) {
+
+                        if (concentration < 0.20f) {
+                            updateVoteWindow("-", timestamp, chordWindow, timeWindow, lastSavedChord, VOTE_WINDOW_SIZE, detectedChords);
+                            return true;
+                        }
+
+                        int noisyNotes = 0;
+                        for (float v : smoothChroma) {
+                            if (v > 0.30f) noisyNotes++;
+                        }
+                        if (noisyNotes > 7) {
                             updateVoteWindow("-", timestamp, chordWindow, timeWindow, lastSavedChord, VOTE_WINDOW_SIZE, detectedChords);
                             return true;
                         }
 
                         // H. CHORD MATCHING
-                        String currentChord = ChordTemplates.findBestMatchingChord(chroma);
+                        String currentChord = ChordTemplates.findBestMatchingChord(smoothChroma);
                         if ("N/A".equals(currentChord)) currentChord = "-";
 
                         if (!currentChord.equals("-")) {
@@ -244,6 +267,25 @@ public class AudioAnalysisRepository {
         }).start();
     }
 
+    public void analyze(String audioPath, boolean isPremiumMode, AnalysisCallback callback) {
+        // 1. Ekstrak audio menjadi PCM (berlaku untuk kedua mode)
+        AudioData decoded = decodeAudio(audioPath);
+        if (decoded == null) {
+            callback.onError(new Exception("Failed to decode")); return;
+        }
+
+        // 2. Pilih "Senjata" (Strategy) berdasarkan mode
+        ChordAnalyzerStrategy analyzer;
+        if (isPremiumMode) {
+            analyzer = new TFLiteMLAnalyzer();
+        } else {
+            analyzer = new TarsosDSPAnalyzer(); // Pakai TarsosDSP dengan Vocal Suppression
+        }
+
+        // 3. Eksekusi analisis
+        analyzer.analyzeChords(audioPath, decoded.sampleRate, callback);
+    }
+
     private void updateVoteWindow(String chord, double timestamp,
                                   ArrayDeque<String> chordWindow, ArrayDeque<Double> timeWindow,
                                   String[] lastSaved, int windowSize, List<ChordTimestamp> detectedChords) {
@@ -276,6 +318,7 @@ public class AudioAnalysisRepository {
         for (int i = 0; i < windowChords.length; i++) {
             if (windowChords[i].equals(winner)) { onsetTime = windowTimes[i]; break; }
         }
+        onsetTime = Math.max(0.0, onsetTime - 0.15);
 
         synchronized (detectedChords) {
             detectedChords.add(new ChordTimestamp(onsetTime, winner));

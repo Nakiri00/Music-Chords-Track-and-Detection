@@ -22,8 +22,8 @@ public class ChordTemplates {
 
     // Chord tone weights: root is most important, third defines major/minor, fifth adds body
     private static final float ROOT_WEIGHT = 1.00f;
-    private static final float THIRD_WEIGHT = 0.85f;
-    private static final float FIFTH_WEIGHT = 0.70f;
+    private static final float THIRD_WEIGHT = 0.75f;
+    private static final float FIFTH_WEIGHT = 0.55f;
 
     private static final Map<String, float[]> chordTemplates = new HashMap<>();
 
@@ -53,32 +53,43 @@ public class ChordTemplates {
      * @return best matching chord name, or "N/A" if no confident match found
      */
     public static String findBestMatchingChord(float[] chroma) {
+        double totalSim = 0;
+        int count = 0;
         String bestChord = "N/A";
-        double maxSimilarity = 0.45; // Minimum cosine similarity threshold
+        double maxSim = 0;
 
         for (Map.Entry<String, float[]> entry : chordTemplates.entrySet()) {
-            String chordName = entry.getKey();
-            float[] template = entry.getValue();
-
-            double dotProduct = 0.0;
-            double normChroma = 0.0;
-            double normTemplate = 0.0;
-
-            for (int i = 0; i < 12; i++) {
-                dotProduct += chroma[i] * template[i];
-                normChroma += chroma[i] * chroma[i];
-                normTemplate += template[i] * template[i];
-            }
-
-            // Cosine similarity: 1.0 = perfect match, 0.0 = completely different
-            double similarity =
-                dotProduct / (Math.sqrt(normChroma * normTemplate) + 1e-10);
-
-            if (similarity > maxSimilarity) {
-                maxSimilarity = similarity;
-                bestChord = chordName;
-            }
+            double sim = cosineSimilarity(chroma, entry.getValue());
+            totalSim += sim;
+            count++;
+            if (sim > maxSim) { maxSim = sim; bestChord = entry.getKey(); }
         }
-        return bestChord;
+
+        double avgSim = totalSim / count;
+        double adaptiveThreshold = Math.max(0.45, avgSim * 1.30);
+        return maxSim >= adaptiveThreshold ? bestChord : "N/A";
+    }
+
+    private static double cosineSimilarity(float[] vectorA, float[] vectorB) {
+        if (vectorA.length != vectorB.length) {
+            throw new IllegalArgumentException("Panjang vektor harus sama");
+        }
+
+        double dotProduct = 0.0;
+        double normA = 0.0;
+        double normB = 0.0;
+
+        for (int i = 0; i < vectorA.length; i++) {
+            dotProduct += vectorA[i] * vectorB[i];
+            normA += Math.pow(vectorA[i], 2);
+            normB += Math.pow(vectorB[i], 2);
+        }
+
+        // Mencegah pembagian dengan nol (division by zero)
+        if (normA == 0.0 || normB == 0.0) {
+            return 0.0;
+        }
+
+        return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
     }
 }

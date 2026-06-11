@@ -27,6 +27,11 @@ android {
             "RAPIDAPI_KEY",
             "\"${localProperties.getProperty("RAPIDAPI_KEY", "")}\""
         )
+        buildConfigField(
+            "String",
+            "NGROK_URL",
+            "\"${localProperties.getProperty("NGROK_API_URL", "http://10.0.2.2:8000/separate")}\""
+        )
     }
 
     buildTypes {
